@@ -1,33 +1,17 @@
+from __future__ import annotations
+
+from typing import Any
+
 from rest_framework.permissions import BasePermission
+from rest_framework.request import Request
 
 
-class IsAdmin(BasePermission):
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role == 'ADMIN'
-        )
+class HasScope(BasePermission):
+    """Grants access when the access token carries ``view.required_scope``."""
 
-
-class IsUser(BasePermission):
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role == 'USER'
-        )
-
-
-class IsService(BasePermission):
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role == 'SERVICE'
-        )
-
-
-class IsAdminOrService(BasePermission):
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role in ['ADMIN', 'SERVICE']
-        )
+    def has_permission(self, request: Request, view: Any) -> bool:
+        required: str | None = getattr(view, "required_scope", None)
+        claims = request.auth
+        if required is None or not isinstance(claims, dict):
+            return False
+        return required in str(claims.get("scope", "")).split()

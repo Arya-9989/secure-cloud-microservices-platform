@@ -1,20 +1,16 @@
 from django.urls import path
-from .views import (
-    InternalHealthCheckView,
-    LoginView,
-    AdminOnlyView,
-    UserOnlyView,
-    ServiceOnlyView,
-    AdminOrServiceView
-)
 
-urlpatterns = [
-    path('login/', LoginView.as_view(), name='login'),
+from . import views
 
-    path('admin-only/', AdminOnlyView.as_view()),
-    path('user-only/', UserOnlyView.as_view()),
-    path('service-only/', ServiceOnlyView.as_view()),
-    path('admin-service/', AdminOrServiceView.as_view()),
-    path('internal/health/', InternalHealthCheckView.as_view()),
+auth_urlpatterns = [
+    path("register/", views.RegisterView.as_view(), name="register"),
+    path("token/", views.TokenView.as_view(), name="token"),
+    path("token/refresh/", views.TokenRefreshView.as_view(), name="token-refresh"),
+    path("logout/", views.LogoutView.as_view(), name="logout"),
+    path("me/", views.MeView.as_view(), name="me"),
+]
 
+admin_urlpatterns = [
+    path("users/", views.AdminUserListView.as_view(), name="admin-users"),
+    path("users/<uuid:pk>/", views.AdminUserDetailView.as_view(), name="admin-user-detail"),
 ]

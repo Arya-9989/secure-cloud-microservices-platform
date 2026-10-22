@@ -1,0 +1,89 @@
+[project]
+name = "auth-service"
+version = "1.0.0"
+description = "Identity service: issues RS256 access tokens, rotating refresh tokens and a JWKS endpoint."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "django>=5.2,<5.3",
+    "djangorestframework>=3.16,<3.17",
+    "drf-spectacular>=0.28",
+    "drf-spectacular-sidecar>=2025.1.1",
+    "pyjwt[crypto]>=2.10",
+    "argon2-cffi>=25.1",
+    "psycopg[binary]>=3.2",
+    "dj-database-url>=3.0",
+    "gunicorn>=23.0",
+    "whitenoise>=6.9",
+    "prometheus-client>=0.22",
+    "python-json-logger>=3.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "pytest-django>=4.11",
+    "pytest-cov>=6.2",
+    "ruff>=0.12",
+    "mypy>=1.17",
+    "django-stubs[compatible-mypy]>=5.2,<5.3",
+    "djangorestframework-stubs[compatible-mypy]>=3.16,<3.17",
+    "pip-audit>=2.9",
+]
+
+[tool.uv]
+package = false
+
+# --------------------------------------------------------------------------- ruff
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["accounts/migrations"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",   # pycodestyle / pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "S",             # bandit (security)
+    "SIM",           # simplify
+    "C4",            # comprehensions
+    "DJ",            # django
+    "RUF",
+    "PT",            # pytest style
+    "N",             # naming
+]
+ignore = ["RUF012"]  # DRF/Django class attributes are intentionally mutable
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]  # asserts and hard-coded test passwords are fine in tests
+
+# --------------------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+strict = true
+warn_unreachable = true
+exclude = ["accounts/migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["dj_database_url", "drf_spectacular.*", "gunicorn.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_decorators = false
+
+[tool.django-stubs]
+django_settings_module = "tests.settings"
+
+# --------------------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:accounts.*"]
+
+[tool.coverage.run]
+source = ["accounts", "platform_core", "auth_service"]
+omit = ["*/migrations/*"]
