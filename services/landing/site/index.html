@@ -12,7 +12,7 @@
   <link rel="preload" href="/assets/fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/assets/tokens.css">
   <link rel="stylesheet" href="/assets/landing.css">
-  <script src="/assets/landing.js" defer></script>
+  <script type="module" src="/assets/landing.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -53,7 +53,8 @@
         <div class="console-head">
           <div>
             <h2 id="live-title" class="console-title">Live from this gateway</h2>
-            <p class="console-note">Public endpoints, probed from your browser through the gateway every 5&nbsp;seconds. Send the last request yourself.</p>
+            <p class="console-note">Public endpoints, probed from your browser through the gateway. Send the last request yourself.</p>
+            <p class="console-cadence" data-cadence></p>
           </div>
           <button type="button" class="pause" data-live-toggle aria-pressed="false" hidden>
             <svg class="icon icon-pause" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="3.5" y="2.5" width="3" height="11" rx="1"/><rect x="9.5" y="2.5" width="3" height="11" rx="1"/></svg>

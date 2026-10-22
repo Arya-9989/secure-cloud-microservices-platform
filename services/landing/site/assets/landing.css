@@ -371,6 +371,18 @@ pre {
   margin-top: 18px;
 }
 
+.console-cadence {
+  margin-top: 4px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.console-cadence:empty {
+  display: none;
+}
+
 .pause {
   display: inline-flex;
   align-items: center;
@@ -1349,20 +1361,24 @@ pre {
 
 /* ------------------------------------------------------------------ reveal */
 
-/* Only content that starts below the fold is hidden, and only when the script
- * is running, so the page reads completely without JavaScript. */
+/* Nothing is hidden at rest, so screenshots, print and no-JS visits always show
+ * the content. landing.js adds .reveal-in when a block first scrolls into view;
+ * the fade-and-lift then runs once. Reduced motion: no class, no animation. */
 @media (prefers-reduced-motion: no-preference) {
-  .reveal-pending {
+  .reveal-in {
+    animation: reveal 320ms var(--ease) both;
+  }
+}
+
+@keyframes reveal {
+  from {
     opacity: 0;
     transform: translateY(16px);
   }
 
-  .reveal-in {
+  to {
     opacity: 1;
     transform: none;
-    transition:
-      opacity 320ms var(--ease),
-      transform 320ms var(--ease);
   }
 }
 
@@ -1409,11 +1425,9 @@ pre {
   }
 }
 
-/* Printing (and any static capture) shows everything, revealed or not. */
 @media print {
-  .reveal-pending {
-    opacity: 1;
-    transform: none;
+  .reveal-in {
+    animation: none;
   }
 
   .localnav,
