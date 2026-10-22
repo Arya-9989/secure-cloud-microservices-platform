@@ -566,21 +566,6 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "gateway"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#199e70"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
               "options": "landing"
             },
             "properties": [
@@ -588,7 +573,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#c98500"
+                  "fixedColor": "#199e70"
                 }
               }
             ]
@@ -1788,21 +1773,6 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "gateway"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#199e70"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
               "options": "landing"
             },
             "properties": [
@@ -1810,7 +1780,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#c98500"
+                  "fixedColor": "#199e70"
                 }
               }
             ]
