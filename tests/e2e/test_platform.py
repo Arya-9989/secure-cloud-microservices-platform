@@ -5,7 +5,10 @@ from __future__ import annotations
 import base64
 import json
 import re
+import socket
+import ssl
 import uuid
+from urllib.parse import urlparse
 
 import httpx
 import jwt
@@ -15,6 +18,7 @@ from conftest import (
     GATEWAY_HTTPS_URL,
     GRAFANA_URL,
     PROMETHEUS_URL,
+    REPO_ROOT,
     Account,
     eventually,
     login,
@@ -46,7 +50,13 @@ class TestGateway:
         assert response.headers["X-Frame-Options"] == "DENY"
         assert "Server" not in response.headers
         assert gateway.post("/").status_code == 405  # static site: GET and HEAD only
-        for asset in ("/assets/landing.css", "/assets/landing.js", "/assets/docs.css"):
+        assets = (
+            "/assets/landing.css",
+            "/assets/landing.js",
+            "/assets/live.js",
+            "/assets/docs.css",
+        )
+        for asset in assets:
             assert gateway.get(asset).status_code == 200, asset
 
     def test_api_docs_share_the_platform_theme_under_csp(self, gateway: httpx.Client) -> None:
@@ -57,6 +67,9 @@ class TestGateway:
             csp = page.headers["Content-Security-Policy"]
             assert page.status_code == 200
             assert 'href="/assets/docs.css"' in page.text
+            # Title and lead are server-rendered inside the <main> landmark.
+            pattern = r"<main[ >].*<h1[^>]*>\w+ API reference[.]</h1>.*</main>"
+            assert re.search(pattern, page.text, re.S)
             assert "script-src 'self'" in csp
             assert "unsafe" not in csp
 
@@ -85,6 +98,32 @@ class TestGateway:
 
         assert response.status_code == 200
         assert "max-age=31536000" in response.headers["Strict-Transport-Security"]
+
+    @pytest.mark.parametrize(
+        ("cipher", "accepted"),
+        [("ECDHE-RSA-AES128-GCM-SHA256", True), ("ECDHE-RSA-AES128-SHA", False)],
+    )
+    def test_tls12_allows_only_aead_ciphers(self, cipher: str, accepted: bool) -> None:
+        url = urlparse(GATEWAY_HTTPS_URL)
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE  # local self-signed certificate
+        context.maximum_version = ssl.TLSVersion.TLSv1_2
+        context.set_ciphers(f"{cipher}:@SECLEVEL=0")
+
+        def handshake() -> str | None:
+            with (
+                socket.create_connection((url.hostname, url.port or 443), timeout=10) as raw,
+                context.wrap_socket(raw, server_hostname=url.hostname) as tls,
+            ):
+                negotiated = tls.cipher()
+                return negotiated[0] if negotiated else None
+
+        if accepted:
+            assert handshake() == cipher
+        else:
+            with pytest.raises(ssl.SSLError):
+                handshake()
 
 
 class TestTokens:
@@ -289,6 +328,33 @@ class TestObservability:
             assert response.json()["data"]["result"], f"no series for {expr}"
 
         eventually(has_series)
+
+    def test_every_dashboard_query_returns_data(self) -> None:
+        dashboard = json.loads(
+            (REPO_ROOT / "observability/grafana/dashboards/platform-overview.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        queries = {
+            f"{panel['title']} [{target['refId']}]": target["expr"]
+            .replace("$__rate_interval", "1m")
+            .replace("$__interval", "1m")
+            for panel in dashboard["panels"]
+            for target in panel.get("targets", [])
+        }
+        assert len(queries) >= 20
+
+        def all_return_data() -> None:
+            empty = [
+                name
+                for name, expr in queries.items()
+                if not httpx.get(
+                    f"{PROMETHEUS_URL}/api/v1/query", params={"query": expr}, timeout=10
+                ).json()["data"]["result"]
+            ]
+            assert not empty, f"panels without data (wrong metric or label?): {empty}"
+
+        eventually(all_return_data, timeout=90)
 
     def test_grafana_dashboard_is_provisioned(self) -> None:
         auth = (setting("GRAFANA_ADMIN_USER", "admin"), setting("GRAFANA_ADMIN_PASSWORD"))

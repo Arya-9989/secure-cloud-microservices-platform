@@ -3,10 +3,10 @@
 Configuration comes from the environment, falling back to the repository's
 .env file (written by scripts/init_env.py):
 
-    GATEWAY_URL        default http://localhost:8080
-    GATEWAY_HTTPS_URL  default https://localhost:8443
-    PROMETHEUS_URL   default http://localhost:9090
-    GRAFANA_URL      default http://localhost:3000
+    GATEWAY_URL        default http://localhost:$GATEWAY_HTTP_PORT (8080)
+    GATEWAY_HTTPS_URL  default https://localhost:$GATEWAY_HTTPS_PORT (8443)
+    PROMETHEUS_URL     default http://localhost:$PROMETHEUS_PORT (9090)
+    GRAFANA_URL        default http://localhost:$GRAFANA_PORT (3000)
     AUTH_BOOTSTRAP_ADMIN_EMAIL / AUTH_BOOTSTRAP_ADMIN_PASSWORD
     GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD
 """
@@ -53,8 +53,8 @@ GATEWAY_URL = setting("GATEWAY_URL", "http://localhost:" + setting("GATEWAY_HTTP
 GATEWAY_HTTPS_URL = setting(
     "GATEWAY_HTTPS_URL", "https://localhost:" + setting("GATEWAY_HTTPS_PORT", "8443")
 )
-PROMETHEUS_URL = setting("PROMETHEUS_URL", "http://localhost:9090")
-GRAFANA_URL = setting("GRAFANA_URL", "http://localhost:3000")
+PROMETHEUS_URL = setting("PROMETHEUS_URL", "http://localhost:" + setting("PROMETHEUS_PORT", "9090"))
+GRAFANA_URL = setting("GRAFANA_URL", "http://localhost:" + setting("GRAFANA_PORT", "3000"))
 
 
 @dataclass

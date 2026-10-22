@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import time
 import urllib.error
@@ -61,7 +62,9 @@ class Client:
 def main() -> None:
     env = dotenv()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--url", default="http://localhost:" + env.get("GATEWAY_HTTP_PORT", "8080"))
+    # Same precedence as docker compose: the shell environment, then .env.
+    port = os.environ.get("GATEWAY_HTTP_PORT") or env.get("GATEWAY_HTTP_PORT", "8080")
+    parser.add_argument("--url", default=f"http://localhost:{port}")
     parser.add_argument("--duration", type=int, default=90, help="seconds to run")
     parser.add_argument("--customers", type=int, default=8)
     args = parser.parse_args()
@@ -73,8 +76,10 @@ def main() -> None:
         "POST",
         "/api/v1/auth/token/",
         {
-            "email": env.get("AUTH_BOOTSTRAP_ADMIN_EMAIL"),
-            "password": env.get("AUTH_BOOTSTRAP_ADMIN_PASSWORD"),
+            "email": os.environ.get("AUTH_BOOTSTRAP_ADMIN_EMAIL")
+            or env.get("AUTH_BOOTSTRAP_ADMIN_EMAIL"),
+            "password": os.environ.get("AUTH_BOOTSTRAP_ADMIN_PASSWORD")
+            or env.get("AUTH_BOOTSTRAP_ADMIN_PASSWORD"),
         },
     )
     admin_token = admin["access_token"] if status == 200 else None
