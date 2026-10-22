@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secure Cloud Microservices Platform</title>
+  <meta name="description" content="A Django identity service issues RS256 JWTs through a JWKS, a Java 21 Spring Boot service verifies them offline, and a Traefik gateway is the only way in. With Prometheus, Grafana and a gated CI pipeline.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="/assets/fonts/inter-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/assets/tokens.css">
+  <link rel="stylesheet" href="/assets/landing.css">
+  <script src="/assets/landing.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="localnav">
+    <div class="localnav-inner">
+      <a class="brand" href="/" aria-label="Secure Platform, home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="8" class="bm-bg"/><path d="M9 9.5h14M9 22.5h14" class="bm-rail"/><path d="M16 6v20" class="bm-gate"/><circle cx="9" cy="16" r="2.5" class="bm-in"/><circle cx="23" cy="16" r="2.5" class="bm-out"/></svg>
+        <span>Secure Platform</span>
+      </a>
+      <nav class="localnav-links" aria-label="Sections">
+        <a href="#architecture">Architecture</a>
+        <a href="#tokens">Tokens</a>
+        <a href="#sessions">Sessions</a>
+        <a href="#access">Access</a>
+        <a href="#limits">Limits</a>
+        <a href="#observability">Observability</a>
+        <a href="#delivery">Delivery</a>
+      </nav>
+      <a class="pill pill-sm" href="/docs/auth/">API docs</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero: always dark, the live console is the product shot. -->
+    <section class="hero theme-dark" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Secure Cloud Microservices Platform</p>
+        <h1 id="hero-title" class="hero-title">Every request,<br>verified.</h1>
+        <p class="hero-lead">A Python identity service signs RS256 tokens. A Java&nbsp;21 service verifies them offline against a JWKS. A Traefik gateway is the only way&nbsp;in.</p>
+        <div class="cta-row">
+          <a class="pill" href="/docs/auth/">Explore the APIs</a>
+          <a class="pill pill-outline" href="https://github.com/Arya-9989/secure-cloud-microservices-platform">View the source</a>
+        </div>
+      </div>
+
+      <div class="console" role="region" aria-labelledby="live-title">
+        <div class="console-head">
+          <div>
+            <h2 id="live-title" class="console-title">Live from this gateway</h2>
+            <p class="console-note">Public endpoints, probed from your browser through the gateway every 5&nbsp;seconds. Send the last request yourself.</p>
+          </div>
+          <button type="button" class="pause" data-live-toggle aria-pressed="false" hidden>
+            <svg class="icon icon-pause" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="3.5" y="2.5" width="3" height="11" rx="1"/><rect x="9.5" y="2.5" width="3" height="11" rx="1"/></svg>
+            <svg class="icon icon-play" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.8v10.4a.8.8 0 0 0 1.2.7l8.3-5.2a.8.8 0 0 0 0-1.4L5.7 2.1a.8.8 0 0 0-1.2.7z"/></svg>
+            <span data-live-label>Pause live updates</span>
+          </button>
+        </div>
+
+        <ul class="probes" role="list">
+          <li class="probe" data-probe="gateway" data-state="idle">
+            <span class="probe-name"><span class="dot" aria-hidden="true"></span>Gateway</span>
+            <code class="probe-path">HEAD /</code>
+            <span class="probe-detail" data-detail>Traefik routes this page from the landing service</span>
+            <span class="probe-status" data-status>Not checked</span>
+            <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+          </li>
+          <li class="probe" data-probe="auth" data-state="idle">
+            <span class="probe-name"><span class="dot" aria-hidden="true"></span>auth-service</span>
+            <code class="probe-path">GET /.well-known/jwks.json</code>
+            <span class="probe-detail" data-detail>Public signing keys for RS256 access tokens</span>
+            <span class="probe-status" data-status>Not checked</span>
+            <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+          </li>
+          <li class="probe" data-probe="orders" data-state="idle">
+            <span class="probe-name"><span class="dot" aria-hidden="true"></span>orders-service</span>
+            <code class="probe-path">GET /.well-known/oauth-protected-resource</code>
+            <span class="probe-detail" data-detail>RFC 9728 metadata: the scopes this API accepts</span>
+            <span class="probe-status" data-status>Not checked</span>
+            <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+          </li>
+          <li class="probe" data-probe="policy" data-state="idle" data-manual>
+            <span class="probe-name"><span class="dot" aria-hidden="true"></span>Access policy</span>
+            <code class="probe-path">GET /api/v1/orders</code>
+            <span class="probe-detail" data-detail>Sent without a token, it should be refused with 401</span>
+            <span class="probe-status"><span data-status>Not checked</span><button type="button" class="try" data-try hidden>Send request</button></span>
+            <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+          </li>
+        </ul>
+        <p class="console-foot">Round-trip times are measured in this browser. Health and metrics ports are never routed through the gateway, so the probes use the same public endpoints any client sees.</p>
+        <noscript><p class="console-foot">Turn on JavaScript to run the live probes. Everything else on this page works without it.</p></noscript>
+        <p class="visually-hidden" aria-live="polite" data-announce></p>
+      </div>
+    </section>
+
+    <!-- Architecture -->
+    <section id="architecture" class="section section-alt" aria-labelledby="arch-h">
+      <div class="wrap">
+        <p class="eyebrow reveal">Architecture</p>
+        <h2 id="arch-h" class="section-title reveal">One way in.</h2>
+        <p class="section-lead reveal">Traefik is the only published entry point. The services and PostgreSQL sit on an internal Docker network with no route to the internet, and metrics and health ports are never routed through the gateway.</p>
+      </div>
+
+      <figure class="diagram reveal">
+        <svg class="diagram-wide" viewBox="0 0 1080 640" role="img" aria-labelledby="dw-title dw-desc" focusable="false">
+          <title id="dw-title">Platform architecture</title>
+          <desc id="dw-desc">A client reaches the Traefik gateway on port 8443 with TLS or 8080. The gateway applies TLS 1.2 and HSTS, per-IP rate limits, a 1 MiB body limit, security headers and JSON access logs, then routes to three services on an internal backend network with no internet access: landing, auth-service and orders-service. orders-service fetches the JSON Web Key Set from auth-service, caches it and refetches on an unknown key ID. Both API services use PostgreSQL 17 with one database and role each. Prometheus, bound to localhost, scrapes the gateway and the services on metrics ports that are never routed, and Grafana queries Prometheus.</desc>
+          <defs>
+            <marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head"/></marker>
+            <marker id="ahw-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head-accent"/></marker>
+          </defs>
+
+          <!-- client -->
+          <rect class="d-node" x="16" y="216" width="150" height="80" rx="14"/>
+          <text class="d-title" x="36" y="250">Client</text>
+          <text class="d-sub" x="36" y="272">browser · curl</text>
+          <path class="d-edge" d="M166 256H236" marker-end="url(#ahw)"/>
+          <text class="d-mono" x="203" y="244" text-anchor="middle">:8443</text>
+          <text class="d-mono" x="203" y="280" text-anchor="middle">:8080</text>
+
+          <!-- gateway -->
+          <rect class="d-node d-node-gw" x="240" y="80" width="220" height="360" rx="18"/>
+          <text class="d-title" x="260" y="114">Traefik gateway</text>
+          <text class="d-sub" x="260" y="136">v3.7 · routes as code</text>
+          <rect class="d-chip" x="258" y="160" width="184" height="32" rx="8"/><text class="d-chip-text" x="272" y="181">TLS 1.2+ · HSTS</text>
+          <rect class="d-chip" x="258" y="202" width="184" height="32" rx="8"/><text class="d-chip-text" x="272" y="223">Per-IP rate limits</text>
+          <rect class="d-chip" x="258" y="244" width="184" height="32" rx="8"/><text class="d-chip-text" x="272" y="265">1 MiB body limit</text>
+          <rect class="d-chip" x="258" y="286" width="184" height="32" rx="8"/><text class="d-chip-text" x="272" y="307">Security headers</text>
+          <rect class="d-chip" x="258" y="328" width="184" height="32" rx="8"/><text class="d-chip-text" x="272" y="349">JSON access logs</text>
+          <text class="d-sub" x="260" y="410">The only published port</text>
+
+          <!-- backend network -->
+          <rect class="d-zone" x="496" y="36" width="568" height="440" rx="22"/>
+          <text class="d-mono" x="520" y="62">backend · internal: true · no internet</text>
+
+          <path class="d-edge" d="M460 114H524" marker-end="url(#ahw)"/>
+          <path class="d-edge" d="M460 236H524" marker-end="url(#ahw)"/>
+          <path class="d-edge" d="M460 396H524" marker-end="url(#ahw)"/>
+
+          <rect class="d-node" x="528" y="82" width="262" height="64" rx="14"/>
+          <text class="d-title" x="548" y="108">landing</text>
+          <text class="d-sub" x="548" y="130">nginx · this page and the docs theme</text>
+
+          <rect class="d-node" x="528" y="186" width="262" height="100" rx="14"/>
+          <text class="d-title" x="548" y="214">auth-service</text>
+          <text class="d-sub" x="548" y="238">Django 6.1 · Python 3.12</text>
+          <text class="d-sub" x="548" y="262">Issues RS256 JWTs and the JWKS</text>
+
+          <rect class="d-node" x="528" y="346" width="262" height="100" rx="14"/>
+          <text class="d-title" x="548" y="374">orders-service</text>
+          <text class="d-sub" x="548" y="398">Spring Boot 4.1 · Java 21</text>
+          <text class="d-sub" x="548" y="422">OAuth2 resource server</text>
+
+          <path class="d-edge d-edge-accent" d="M600 346V290" marker-end="url(#ahw-a)"/>
+          <text class="d-mono d-mono-accent" x="614" y="313">JWKS fetch</text>
+          <text class="d-mono" x="614" y="329">cached · refetch on new kid</text>
+
+          <rect class="d-node" x="862" y="266" width="180" height="100" rx="14"/>
+          <text class="d-title" x="882" y="294">PostgreSQL 17</text>
+          <text class="d-sub" x="882" y="318">auth · orders</text>
+          <text class="d-sub" x="882" y="342">one role per service</text>
+          <path class="d-edge" d="M790 236H826V296H858" marker-end="url(#ahw)"/>
+          <path class="d-edge" d="M790 396H826V336H858" marker-end="url(#ahw)"/>
+
+          <!-- observability -->
+          <rect class="d-zone" x="240" y="500" width="824" height="124" rx="22"/>
+          <text class="d-mono" x="1040" y="526" text-anchor="end">observability · bound to 127.0.0.1</text>
+          <rect class="d-node" x="264" y="544" width="360" height="62" rx="14"/>
+          <text class="d-title" x="284" y="570">Prometheus</text>
+          <text class="d-sub" x="284" y="592">Scrapes :8082 · :9100 · :8081 · 5 alert rules</text>
+          <rect class="d-node" x="680" y="544" width="360" height="62" rx="14"/>
+          <text class="d-title" x="700" y="570">Grafana</text>
+          <text class="d-sub" x="700" y="592">Provisioned overview dashboard</text>
+          <path class="d-edge" d="M680 575H628" marker-end="url(#ahw)"/>
+          <path class="d-edge d-edge-dashed" d="M330 544V444" marker-end="url(#ahw)"/>
+          <path class="d-edge d-edge-dashed" d="M590 544V450" marker-end="url(#ahw)"/>
+          <text class="d-mono" x="604" y="493">metrics ports · never routed</text>
+        </svg>
+
+        <svg class="diagram-tall" viewBox="0 0 360 900" role="img" aria-labelledby="dt-title dt-desc" focusable="false">
+          <title id="dt-title">Platform architecture</title>
+          <desc id="dt-desc">A client reaches the Traefik gateway, the only published entry point, which applies TLS and HSTS, per-IP rate limits, a 1 MiB body limit, security headers and JSON access logs. It routes to landing, auth-service and orders-service on an internal backend network. orders-service fetches and caches the JWKS from auth-service. Both API services use PostgreSQL 17. Prometheus on localhost scrapes metrics ports that are never routed, and Grafana reads from Prometheus.</desc>
+          <defs>
+            <marker id="aht" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head"/></marker>
+            <marker id="aht-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head-accent"/></marker>
+          </defs>
+          <rect class="d-node" x="16" y="8" width="328" height="56" rx="14"/>
+          <text class="d-title" x="36" y="33">Client</text>
+          <text class="d-sub" x="36" y="53">browser · curl</text>
+          <path class="d-edge" d="M180 64V96" marker-end="url(#aht)"/>
+          <text class="d-mono" x="194" y="86">:8443 TLS · :8080</text>
+
+          <rect class="d-node d-node-gw" x="16" y="100" width="328" height="180" rx="18"/>
+          <text class="d-title" x="36" y="130">Traefik gateway</text>
+          <text class="d-sub" x="36" y="150">The only published entry point</text>
+          <rect class="d-chip" x="32" y="166" width="144" height="30" rx="8"/><text class="d-chip-text" x="44" y="186">TLS 1.2+ · HSTS</text>
+          <rect class="d-chip" x="184" y="166" width="144" height="30" rx="8"/><text class="d-chip-text" x="196" y="186">Per-IP rate limits</text>
+          <rect class="d-chip" x="32" y="204" width="144" height="30" rx="8"/><text class="d-chip-text" x="44" y="224">1 MiB body limit</text>
+          <rect class="d-chip" x="184" y="204" width="144" height="30" rx="8"/><text class="d-chip-text" x="196" y="224">Security headers</text>
+          <rect class="d-chip" x="32" y="242" width="144" height="30" rx="8"/><text class="d-chip-text" x="44" y="262">JSON access logs</text>
+          <rect class="d-chip" x="184" y="242" width="144" height="30" rx="8"/><text class="d-chip-text" x="196" y="262">Routes as code</text>
+
+          <rect class="d-zone" x="8" y="312" width="344" height="424" rx="20"/>
+          <text class="d-mono" x="60" y="338">backend · internal: true</text>
+          <path class="d-edge" d="M40 280V606"/>
+          <path class="d-edge" d="M40 378H56" marker-end="url(#aht)"/>
+          <path class="d-edge" d="M40 466H56" marker-end="url(#aht)"/>
+          <path class="d-edge" d="M40 606H56" marker-end="url(#aht)"/>
+
+          <rect class="d-node" x="60" y="350" width="276" height="56" rx="14"/>
+          <text class="d-title" x="80" y="374">landing</text>
+          <text class="d-sub" x="80" y="394">nginx · page and docs theme</text>
+
+          <rect class="d-node" x="60" y="426" width="276" height="80" rx="14"/>
+          <text class="d-title" x="80" y="452">auth-service</text>
+          <text class="d-sub" x="80" y="472">Django 6.1 · Python 3.12</text>
+          <text class="d-sub" x="80" y="492">Issues RS256 JWTs and the JWKS</text>
+
+          <path class="d-edge d-edge-accent" d="M200 566V510" marker-end="url(#aht-a)"/>
+          <text class="d-mono d-mono-accent" x="212" y="532">JWKS fetch</text>
+          <text class="d-mono" x="212" y="548">cached</text>
+
+          <rect class="d-node" x="60" y="566" width="276" height="80" rx="14"/>
+          <text class="d-title" x="80" y="592">orders-service</text>
+          <text class="d-sub" x="80" y="612">Spring Boot 4.1 · Java 21</text>
+          <text class="d-sub" x="80" y="632">OAuth2 resource server</text>
+
+          <path class="d-edge" d="M336 466H346V690H340" marker-end="url(#aht)"/>
+          <path class="d-edge" d="M336 606H346"/>
+          <rect class="d-node" x="60" y="664" width="276" height="54" rx="14"/>
+          <text class="d-title" x="80" y="688">PostgreSQL 17</text>
+          <text class="d-sub" x="80" y="707">auth · orders · one role each</text>
+
+          <path class="d-edge d-edge-dashed" d="M100 800V740" marker-end="url(#aht)"/>
+          <text class="d-mono" x="112" y="754">metrics ports · never routed</text>
+          <rect class="d-zone" x="8" y="764" width="344" height="128" rx="20"/>
+          <text class="d-mono" x="340" y="788" text-anchor="end">observability · 127.0.0.1</text>
+          <rect class="d-node" x="24" y="800" width="148" height="76" rx="14"/>
+          <text class="d-title" x="40" y="828">Prometheus</text>
+          <text class="d-sub" x="40" y="848">Scrapes metrics</text>
+          <text class="d-sub" x="40" y="866">5 alert rules</text>
+          <rect class="d-node" x="192" y="800" width="148" height="76" rx="14"/>
+          <text class="d-title" x="208" y="828">Grafana</text>
+          <text class="d-sub" x="208" y="848">Provisioned</text>
+          <text class="d-sub" x="208" y="866">dashboard</text>
+          <path class="d-edge" d="M192 838H176" marker-end="url(#aht)"/>
+        </svg>
+      </figure>
+
+      <div class="wrap">
+        <ul class="tiles tiles-3" role="list">
+          <li class="tile reveal">
+            <h3 class="tile-title">Edge</h3>
+            <p>TLS 1.2+ with AEAD ciphers and HSTS on the HTTPS entry point. Per-IP rate limits, a 1&nbsp;MiB body limit, security headers, and JSON access logs with the <code>Authorization</code> header redacted.</p>
+          </li>
+          <li class="tile reveal">
+            <h3 class="tile-title">Containers</h3>
+            <p>Services, gateway and monitoring run as non-root users on read-only root filesystems, with every capability dropped and <code>no-new-privileges</code>. The JVM runs on a distroless image, and the gateway never gets the Docker socket.</p>
+          </li>
+          <li class="tile reveal">
+            <h3 class="tile-title">Data</h3>
+            <p>One PostgreSQL database and one least-privilege role per service. Secrets are generated locally into a git-ignored <code>.env</code>, and the services refuse to start without them.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Tokens -->
+    <section id="tokens" class="section" aria-labelledby="tokens-h">
+      <div class="wrap">
+        <p class="eyebrow reveal">Tokens</p>
+        <h2 id="tokens-h" class="section-title reveal">Signed once.<br>Verified anywhere.</h2>
+        <p class="section-lead reveal">auth-service signs short-lived access tokens and publishes the public keys as a JSON Web Key Set. orders-service checks every token locally, so the identity service is never on the hot path of a read.</p>
+
+        <div class="split">
+          <ol class="steps" role="list">
+            <li class="step reveal">
+              <span class="step-n" aria-hidden="true">01</span>
+              <h3 class="step-title">Sign</h3>
+              <p>RS256 with an RSA key of at least 2048 bits, 3072 when generated locally. The private key lives in a <code>0600</code> volume or a Kubernetes Secret, never in the image. Access tokens last 15&nbsp;minutes.</p>
+            </li>
+            <li class="step reveal">
+              <span class="step-n" aria-hidden="true">02</span>
+              <h3 class="step-title">Publish</h3>
+              <p><code>/.well-known/jwks.json</code> serves the key set with <code>max-age=300</code>. Each <code>kid</code> is the key&#8217;s RFC&nbsp;7638 thumbprint, so it can never drift from the key itself.</p>
+            </li>
+            <li class="step reveal">
+              <span class="step-n" aria-hidden="true">03</span>
+              <h3 class="step-title">Verify</h3>
+              <p>Only RS256 is accepted, so <code>alg=none</code> and HS256 key-confusion forgeries fail. Issuer, audience, expiry and subject are checked with 30&nbsp;seconds of clock skew.</p>
+            </li>
+            <li class="step reveal">
+              <span class="step-n" aria-hidden="true">04</span>
+              <h3 class="step-title">Rotate</h3>
+              <p>An unknown <code>kid</code> triggers a JWKS refetch, so orders-service picks up a new signing key without a restart. Retired public keys can stay in the set until their last tokens expire.</p>
+            </li>
+          </ol>
+
+          <figure class="token-card reveal" aria-labelledby="token-cap">
+            <figcaption id="token-cap" class="token-cap">The shape of an access token <span>Values in angle brackets vary per user and login.</span></figcaption>
+            <pre class="code" tabindex="0"><code><span class="c-dim">// header</span>
+{
+  <span class="c-key">"alg"</span>: "RS256",
+  <span class="c-key">"kid"</span>: "&lt;RFC 7638 thumbprint&gt;",
+  <span class="c-key">"typ"</span>: "JWT"
+}
+<span class="c-dim">// payload</span>
+{
+  <span class="c-key">"iss"</span>: "urn:secure-platform:auth-service",
+  <span class="c-key">"aud"</span>: "secure-platform-api",
+  <span class="c-key">"sub"</span>: "&lt;user id&gt;",
+  <span class="c-key">"email"</span>: "&lt;user email&gt;",
+  <span class="c-key">"roles"</span>: ["USER"],
+  <span class="c-key">"scope"</span>: "orders:read orders:write",
+  <span class="c-key">"iat"</span>: &lt;now&gt;,
+  <span class="c-key">"nbf"</span>: &lt;now&gt;,
+  <span class="c-key">"exp"</span>: &lt;now + 900&gt;,
+  <span class="c-key">"jti"</span>: "&lt;uuid&gt;"
+}</code></pre>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sessions -->
+    <section id="sessions" class="section section-alt" aria-labelledby="sessions-h">
+      <div class="wrap">
+        <p class="eyebrow reveal">Sessions</p>
+        <h2 id="sessions-h" class="section-title reveal">Reuse is treated<br>as theft.</h2>
+        <p class="section-lead reveal">Refresh tokens are opaque, single use and stored only as SHA-256 digests. Each login starts a token family. Present a token that was already rotated, and the whole family is revoked.</p>
+
+        <ol class="timeline" role="list">
+          <li class="tl reveal">
+            <span class="tl-dot" aria-hidden="true"></span>
+            <p class="tl-call"><code>POST /api/v1/auth/<wbr>token/</code></p>
+            <h3 class="tl-title">Log in</h3>
+            <p>A new family starts and refresh token R1 is issued with a fresh access token.</p>
+          </li>
+          <li class="tl reveal">
+            <span class="tl-dot" aria-hidden="true"></span>
+            <p class="tl-call"><code>POST /api/v1/auth/<wbr>token/<wbr>refresh/</code></p>
+            <h3 class="tl-title">Rotate</h3>
+            <p>Under a row lock, R1 is marked rotated and R2 is issued in the same family.</p>
+          </li>
+          <li class="tl tl-alert reveal">
+            <span class="tl-dot" aria-hidden="true"></span>
+            <p class="tl-call"><code>POST /api/v1/auth/<wbr>token/<wbr>refresh/</code> with R1 again</p>
+            <h3 class="tl-title">Replay detected</h3>
+            <p>Every token in the family is revoked, including R2. The caller gets <code>401</code>, and the legitimate holder must sign in again.</p>
+          </li>
+          <li class="tl reveal">
+            <span class="tl-dot" aria-hidden="true"></span>
+            <p class="tl-call"><code>auth_refresh_token_<wbr>reuse_detected_total</code></p>
+            <h3 class="tl-title">Alert</h3>
+            <p>The counter increments and Prometheus fires <code>RefreshTokenReuse</code>.</p>
+          </li>
+        </ol>
+
+        <dl class="figures">
+          <div class="figure reveal"><dt>Sliding refresh lifetime</dt><dd>7<span> days</span></dd></div>
+          <div class="figure reveal"><dt>Absolute session cap</dt><dd>30<span> days</span></dd></div>
+          <div class="figure reveal"><dt>Access token lifetime</dt><dd>15<span> min</span></dd></div>
+        </dl>
+        <p class="note reveal">Logging out revokes the family. Disabling an account or changing its role revokes every refresh token it holds, immediately.</p>
+      </div>
+    </section>
+
+    <!-- Access -->
+    <section id="access" class="section" aria-labelledby="access-h">
+      <div class="wrap">
+        <p class="eyebrow reveal">Authorization</p>
+        <h2 id="access-h" class="section-title reveal">Scopes for APIs.<br>Roles for people.</h2>
+        <p class="section-lead reveal">Roles map to scopes in one table on the auth service. Resource servers authorize on scopes, and add a role check only where defence in depth is worth it.</p>
+
+        <div class="split split-even">
+          <div class="table-card reveal">
+            <h3 class="card-title">Roles grant scopes</h3>
+            <table class="table">
+              <caption class="visually-hidden">Scopes granted to each role</caption>
+              <thead><tr><th scope="col">Role</th><th scope="col">Scopes in the token</th></tr></thead>
+              <tbody>
+                <tr><th scope="row"><code>USER</code></th><td><code>orders:read</code> <code>orders:write</code></td></tr>
+                <tr><th scope="row"><code>ADMIN</code></th><td><code>orders:read</code> <code>orders:write</code> <code>orders:admin</code> <code>users:admin</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-card reveal">
+            <h3 class="card-title">Routes require them</h3>
+            <table class="table">
+              <caption class="visually-hidden">What each route requires</caption>
+              <thead><tr><th scope="col">Route</th><th scope="col">Requires</th></tr></thead>
+              <tbody>
+                <tr><th scope="row"><code>GET</code> products, orders</th><td><code>orders:read</code></td></tr>
+                <tr><th scope="row"><code>POST</code> orders, cancel</th><td><code>orders:write</code></td></tr>
+                <tr><th scope="row">Admin orders</th><td><code>ADMIN</code> role and <code>orders:admin</code></td></tr>
+                <tr><th scope="row">Admin users</th><td><code>users:admin</code></td></tr>
+                <tr><th scope="row">Any other route</th><td>Denied</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <ul class="tiles tiles-2" role="list">
+          <li class="tile reveal">
+            <h3 class="tile-title">404, not 403.</h3>
+            <p>Ownership is part of the SQL query, so another customer&#8217;s order is indistinguishable from one that does not exist.</p>
+          </li>
+          <li class="tile reveal">
+            <h3 class="tile-title">Prices come from the server.</h3>
+            <p>Clients send a SKU and a quantity. The catalog sets the price, and unknown JSON fields are rejected outright.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Limits: always dark, numerals as the hero. -->
+    <section id="limits" class="section theme-dark section-dark section-alt" aria-labelledby="limits-h">
+      <div class="wrap">
+        <p class="eyebrow reveal">Rate limits</p>
+        <h2 id="limits-h" class="section-title reveal">Limits at every layer.</h2>
+        <p class="section-lead reveal">The gateway sheds floods per client IP before they reach a service. auth-service adds its own throttles per IP and per account, shared across workers and replicas through the database cache.</p>
+
+        <dl class="numerals">
+          <div class="numeral reveal"><dt>Gateway, auth routes</dt><dd>10<span>/s</span></dd><dd class="numeral-note">Average per client IP, burst 20.</dd></div>
+          <div class="numeral reveal"><dt>Gateway, all other routes</dt><dd>50<span>/s</span></dd><dd class="numeral-note">Average per client IP, burst 100.</dd></div>
+          <div class="numeral reveal"><dt>Logins per account</dt><dd>5<span>/min</span></dd><dd class="numeral-note">On top of 20 per minute per IP. Even the right password is refused while throttled.</dd></div>
+          <div class="numeral reveal"><dt>Request body</dt><dd>1<span>&nbsp;MiB</span></dd><dd class="numeral-note">The most the gateway will buffer for any request.</dd></div>
+        </dl>
+        <p class="note reveal">Sign-ups are limited to 10 per hour per IP, and refresh or logout calls to 60 per minute per IP. The local compose stack relaxes the per-IP login and sign-up limits so the test suite can run repeatedly; the per-account limit is unchanged.</p>
+      </div>
+    </section>
+
+    <!-- Observability -->
+    <section id="observability" class="section" aria-labelledby="obs-h">
+      <div class="wrap">
+        <p class="eyebrow reveal">Observability</p>
+        <h2 id="obs-h" class="section-title reveal">Every signal,<br>one schema.</h2>
+        <p class="section-lead reveal">Both services export the same <code>http_server_requests_seconds</code> histogram, so one PromQL query covers Python and Java alike. Grafana opens on a provisioned dashboard.</p>
+      </div>
+      <figure class="shot reveal">
+        <img src="/assets/grafana-dashboard.png" width="1600" height="1640" loading="lazy" decoding="async" alt="Grafana dashboard with golden signals, per-service traffic and latency, gateway responses by status, login outcomes, token grants, refresh-token replays and runtime panels.">
+        <figcaption>The provisioned dashboard after <code>scripts/demo_traffic.py</code>. Replays and throttled logins are generated on purpose.</figcaption>
+      </figure>
+      <div class="wrap">
+        <ul class="tiles tiles-2" role="list">
+          <li class="tile reveal">
+            <h3 class="tile-title">Five alert rules.</h3>
+            <ul class="facts" role="list">
+              <li><code>TargetDown</code><span>A target is not scraped for 1 minute.</span></li>
+              <li><code>HighServerErrorRate</code><span>Over 5% of requests fail with 5xx for 5 minutes.</span></li>
+              <li><code>SlowRequests</code><span>95th-percentile latency above 1 second for 10 minutes.</span></li>
+              <li><code>RefreshTokenReuse</code><span>Any replay in the last 15 minutes.</span></li>
+              <li><code>LoginBruteForce</code><span>More than one failed or throttled login per second for 5 minutes.</span></li>
+            </ul>
+          </li>
+          <li class="tile reveal">
+            <h3 class="tile-title">One ID per request.</h3>
+            <p>A well-formed <code>X-Request-ID</code> from the client is kept; otherwise one is generated. It is echoed in the response, recorded by the gateway access log, attached to every JSON log line and included in every problem response.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Delivery -->
+    <section id="delivery" class="section section-alt" aria-labelledby="delivery-h">
+      <div class="wrap">
+        <p class="eyebrow reveal">Delivery</p>
+        <h2 id="delivery-h" class="section-title reveal">Nothing ships unscanned.</h2>
+        <p class="section-lead reveal">GitHub Actions runs on every push and pull request, with every action pinned to a commit SHA and least-privilege tokens per job. A Jenkinsfile runs the same stages.</p>
+
+        <ol class="pipeline" role="list">
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">1</span><h3>Lint and types</h3><p>ruff, <code>mypy --strict</code>, Spotless, <code>-Werror</code></p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">2</span><h3>Unit and integration</h3><p>79 pytest tests on PostgreSQL. 49 JUnit tests with Testcontainers.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">3</span><h3>Audit and validate</h3><p><code>pip-audit</code> on locked dependencies. <code>kubeconform -strict</code> on the manifests.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">4</span><h3>Scan</h3><p>Trivy fails the build on any fixable HIGH or CRITICAL vulnerability in every image.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">5</span><h3>End to end</h3><p>28 black-box tests against the full stack, through the gateway.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">6</span><h3>Publish</h3><p>On <code>main</code> only: both service images go to GHCR with SBOM and provenance attestations.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- Closing -->
+    <section class="section theme-dark section-dark closing" aria-labelledby="run-h">
+      <div class="wrap wrap-narrow">
+        <h2 id="run-h" class="section-title reveal">Run it in two commands.</h2>
+        <pre class="code code-cmd reveal" tabindex="0"><code><span class="c-dim">$</span> python scripts/init_env.py
+<span class="c-dim">$</span> docker compose up --build --wait</code></pre>
+        <div class="cta-row reveal">
+          <a class="pill" href="/docs/auth/">Auth API reference</a>
+          <a class="pill pill-outline" href="/docs/orders/swagger-ui.html">Orders API reference</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <p>Secure Cloud Microservices Platform. Released under the MIT License.</p>
+      <nav aria-label="Footer">
+        <a href="https://github.com/Arya-9989/secure-cloud-microservices-platform">Source on GitHub</a>
+        <a href="/docs/auth/">Auth API</a>
+        <a href="/docs/orders/swagger-ui.html">Orders API</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

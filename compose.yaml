@@ -119,6 +119,18 @@ services:
       resources:
         limits: { memory: 640m, cpus: "1.5" }
 
+  # Static landing page at / and the shared theme for the API docs.
+  landing:
+    build: ./services/landing
+    image: secure-platform/landing:local
+    <<: [*hardening, *logging]
+    tmpfs:
+      - /tmp:size=16m,uid=101,gid=101
+    networks: [backend]
+    deploy:
+      resources:
+        limits: { memory: 64m, cpus: "0.25" }
+
   gateway:
     image: traefik:v3.7.16
     <<: [*hardening, *logging]
@@ -141,6 +153,7 @@ services:
     depends_on:
       auth-service: { condition: service_healthy }
       orders-service: { condition: service_healthy }
+      landing: { condition: service_healthy }
 
   prometheus:
     image: prom/prometheus:v3.15.0

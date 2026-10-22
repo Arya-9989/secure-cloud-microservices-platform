@@ -6,18 +6,40 @@ http:
       entryPoints: [web, websecure]
       rule: >-
         PathPrefix(`/api/v1/auth/`) || Path(`/.well-known/jwks.json`) ||
-        PathPrefix(`/api/v1/admin/users`) || PathPrefix(`/docs/auth`)
+        PathPrefix(`/api/v1/admin/users`)
       middlewares: [security-headers, body-limit, auth-rate-limit]
+      service: auth-service
+
+    # API docs get their own routers so only they are compressed: API responses
+    # carrying tokens are never compressed (no BREACH-style length oracle).
+    auth-docs:
+      entryPoints: [web, websecure]
+      rule: PathPrefix(`/docs/auth`)
+      middlewares: [security-headers, body-limit, auth-rate-limit, compress-static]
       service: auth-service
 
     orders:
       entryPoints: [web, websecure]
       rule: >-
         PathPrefix(`/api/v1/orders`) || PathPrefix(`/api/v1/products`) ||
-        PathPrefix(`/api/v1/admin/orders`) || PathPrefix(`/docs/orders`) ||
+        PathPrefix(`/api/v1/admin/orders`) ||
         Path(`/.well-known/oauth-protected-resource`)
       middlewares: [security-headers, body-limit, api-rate-limit]
       service: orders-service
+
+    orders-docs:
+      entryPoints: [web, websecure]
+      rule: PathPrefix(`/docs/orders`)
+      middlewares: [security-headers, body-limit, api-rate-limit, compress-static]
+      service: orders-service
+
+    # The landing page and the shared docs theme. Only these two paths are
+    # routed, so the landing container's own /healthz stays internal.
+    landing:
+      entryPoints: [web, websecure]
+      rule: Path(`/`) || PathPrefix(`/assets/`)
+      middlewares: [security-headers, body-limit, api-rate-limit]
+      service: landing
 
   middlewares:
     # Coarse, per-client-IP flood protection at the edge. Credential-stuffing
@@ -32,6 +54,9 @@ http:
         average: 10
         period: 1s
         burst: 20
+
+    compress-static:
+      compress: {}
 
     body-limit:
       buffering:
@@ -55,6 +80,15 @@ http:
           - url: http://auth-service:8000
         healthCheck:
           path: /readyz
+          interval: 10s
+          timeout: 3s
+
+    landing:
+      loadBalancer:
+        servers:
+          - url: http://landing:8080
+        healthCheck:
+          path: /healthz
           interval: 10s
           timeout: 3s
 

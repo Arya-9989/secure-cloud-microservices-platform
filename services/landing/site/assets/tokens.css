@@ -1,0 +1,126 @@
+/* Design tokens shared by the landing page and the API docs theme.
+ * Identity: a cloud-native control plane. Near-black ops surfaces, one cyan
+ * accent for action and live state, monospace for paths and signals. */
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/inter-latin-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono Fallback";
+  src: local("Consolas");
+  size-adjust: 109.1%;
+  ascent-override: 93.5%;
+  descent-override: 27.5%;
+  line-gap-override: 0%;
+}
+
+/* Metric-matched fallback so the swap to Inter does not shift layout. */
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial"), local("Helvetica Neue"), local("Helvetica");
+  size-adjust: 107.12%;
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+}
+
+:root {
+  --font-sans: "Inter Variable", "Inter Fallback", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono Fallback", ui-monospace, "SF Mono",
+    Menlo, Consolas, "Liberation Mono", monospace;
+
+  --ease: cubic-bezier(0.4, 0, 0.6, 1);
+  --radius-tile: 28px;
+  --radius-card: 18px;
+  --radius-sm: 8px;
+
+  /* Light */
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-alt: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --surface-3: #e8e8ed;
+  --line: rgba(0, 0, 0, 0.1);
+  --line-strong: rgba(0, 0, 0, 0.18);
+  --text: #1d1d1f;
+  --text-2: #58585d;
+  --accent: #0b6e86;
+  --accent-hover: #095c70;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(11, 110, 134, 0.1);
+  --danger: #c62828;
+  --danger-soft: rgba(198, 40, 40, 0.1);
+  --nav-bg: rgba(255, 255, 255, 0.9);
+  --nav-link: #424245;
+  --code-bg: #0b0d10;
+  --code-text: #e6edf3;
+  --code-dim: #8b949e;
+  --code-key: #67e8f9;
+}
+
+/* Dark: designed, not inverted. Surfaces step up from true black. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #000000;
+    --bg-alt: #101215;
+    --surface: #17191d;
+    --surface-2: #1e2126;
+    --surface-3: #282c33;
+    --line: rgba(255, 255, 255, 0.1);
+    --line-strong: rgba(255, 255, 255, 0.2);
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --accent: #22d3ee;
+    --accent-hover: #67e8f9;
+    --accent-ink: #001b21;
+    --accent-soft: rgba(34, 211, 238, 0.12);
+    --danger: #ff6961;
+    --danger-soft: rgba(255, 105, 97, 0.12);
+    --nav-bg: rgba(0, 0, 0, 0.72);
+    --nav-link: #a1a1a6;
+    --code-bg: #0b0d10;
+  }
+}
+
+/* Always-dark regions (the hero console) and the explicit dark theme share one set. */
+:root[data-theme="dark"],
+.theme-dark {
+  color-scheme: dark;
+  --bg: #000000;
+  --bg-alt: #101215;
+  --surface: #17191d;
+  --surface-2: #1e2126;
+  --surface-3: #282c33;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.2);
+  --text: #f5f5f7;
+  --text-2: #a1a1a6;
+  --accent: #22d3ee;
+  --accent-hover: #67e8f9;
+  --accent-ink: #001b21;
+  --accent-soft: rgba(34, 211, 238, 0.12);
+  --danger: #ff6961;
+  --danger-soft: rgba(255, 105, 97, 0.12);
+  --nav-bg: rgba(0, 0, 0, 0.72);
+  --nav-link: #a1a1a6;
+  --code-bg: #0b0d10;
+}
