@@ -603,7 +603,7 @@
 
         <ol class="pipeline" role="list">
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">1</span><h3>Lint and types</h3><p>ruff, <code>mypy --strict</code>, Spotless, <code>-Werror</code></p></li>
-          <li class="stage reveal"><span class="stage-n" aria-hidden="true">2</span><h3>Unit and integration</h3><p>84 pytest tests on PostgreSQL. 59 JUnit tests with Testcontainers. 11 Node tests for the live console.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">2</span><h3>Unit and integration</h3><p>84 pytest tests on PostgreSQL. 59 JUnit tests with Testcontainers. 24 Node tests for the live console and the page itself.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">3</span><h3>Audit and validate</h3><p><code>pip-audit</code> on locked dependencies. <code>kubeconform -strict</code> on the manifests. <code>promtool</code> tests for every alert rule.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">4</span><h3>Scan</h3><p>Trivy fails the build on any fixable HIGH or CRITICAL vulnerability in every image.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">5</span><h3>End to end</h3><p>31 black-box tests against the full stack, through the gateway.</p></li>
