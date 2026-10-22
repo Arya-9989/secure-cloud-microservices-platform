@@ -262,13 +262,15 @@ pre {
   letter-spacing: -0.01em;
 }
 
-/* Touch: keep the small pill's look but give it a 44px hit area. */
+/* Touch: keep the small pill's and the brand's look but give each a 44px hit area. */
 @media (pointer: coarse) {
-  .pill-sm {
+  .pill-sm,
+  .brand {
     position: relative;
   }
 
-  .pill-sm::before {
+  .pill-sm::before,
+  .brand::before {
     content: "";
     position: absolute;
     inset: -8px -4px;

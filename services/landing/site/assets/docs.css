@@ -859,3 +859,43 @@ body {
 #swagger-ui .swagger-ui .scheme-container .auth-wrapper {
   margin-left: auto;
 }
+
+/* Touch: every control is at least 44 x 44. On a phone the operation's icon
+ * buttons move to their own line under the path, so the path keeps its width. */
+@media (pointer: coarse) {
+  .docs-brand {
+    min-height: 44px;
+  }
+
+  #swagger-ui .swagger-ui :is(.btn.authorize, .models-control) {
+    min-height: 44px;
+  }
+
+  #swagger-ui .swagger-ui .opblock-summary .copy-to-clipboard,
+  #swagger-ui .swagger-ui .opblock-summary .copy-to-clipboard button,
+  #swagger-ui .swagger-ui .opblock-summary :is(.authorization__btn, .opblock-control-arrow),
+  #swagger-ui .swagger-ui .opblock-tag .expand-operation {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (pointer: coarse) and (max-width: 600px) {
+  #swagger-ui .swagger-ui .opblock .opblock-summary {
+    flex-wrap: wrap;
+  }
+
+  #swagger-ui .swagger-ui .opblock .opblock-summary-control {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+  }
+
+  #swagger-ui .swagger-ui .opblock .opblock-summary-path-description-wrapper {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  #swagger-ui .swagger-ui .opblock .opblock-summary .copy-to-clipboard {
+    margin-left: auto;
+  }
+}
