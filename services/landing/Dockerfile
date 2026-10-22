@@ -2,7 +2,7 @@
 
 # Static landing page and the shared API-docs theme. No build step: the site is
 # hand-written HTML, CSS and a small script, served by unprivileged nginx.
-FROM nginxinc/nginx-unprivileged:1.30.6-alpine3.24-slim
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24-slim
 
 LABEL org.opencontainers.image.title="landing" \
       org.opencontainers.image.description="Platform landing page and API docs theme, served behind the gateway" \
