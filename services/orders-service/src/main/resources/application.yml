@@ -79,8 +79,11 @@ springdoc:
     path: /docs/orders/openapi.json
   swagger-ui:
     path: /docs/orders/swagger-ui.html # UI assets are served from /docs/orders/swagger-ui/
+    layout: BaseLayout # the themed page (web/ApiDocsPageController) brings its own header
+    deep-linking: false # deep links nest an <a> inside each operation's toggle button
     try-it-out-enabled: true
     persist-authorization: true
+    default-models-expand-depth: 0
 
 logging:
   structured:

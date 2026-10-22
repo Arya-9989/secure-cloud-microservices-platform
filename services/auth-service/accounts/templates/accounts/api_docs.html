@@ -1,0 +1,39 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auth API reference · Secure Platform</title>
+  <meta name="description" content="Interactive OpenAPI reference for auth-service: registration, login, rotating refresh tokens, the JWKS and user administration.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="/assets/fonts/inter-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  {# Theme assets are served by the landing service through the gateway; without them the page falls back to stock Swagger UI. #}
+  <script src="/assets/docs-theme.js"></script>
+  <link rel="stylesheet" href="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui.css' %}">
+  <link rel="stylesheet" href="/assets/tokens.css">
+  <link rel="stylesheet" href="/assets/docs.css">
+</head>
+<body>
+  <a class="skip" href="#swagger-ui">Skip to the API reference</a>
+  <header class="docs-bar">
+    <div class="docs-bar-inner">
+      <a class="docs-brand" href="/" aria-label="Secure Platform, home">
+        <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="8" class="bm-bg"/><path d="M9 9.5h14M9 22.5h14" class="bm-rail"/><path d="M16 6v20" class="bm-gate"/><circle cx="9" cy="16" r="2.5" class="bm-in"/><circle cx="23" cy="16" r="2.5" class="bm-out"/></svg>
+        <span>Secure Platform</span>
+      </a>
+      <nav class="docs-switch" aria-label="API reference">
+        <a href="{% url 'docs' %}" aria-current="page">Auth API</a>
+        <a href="/docs/orders/swagger-ui.html">Orders API</a>
+      </nav>
+      <a class="docs-json" href="{% url 'openapi-schema' %}">OpenAPI document</a>
+    </div>
+  </header>
+  <div id="swagger-ui" data-openapi-url="{% url 'openapi-schema' %}" tabindex="-1">
+    <noscript><p class="docs-noscript">The interactive reference needs JavaScript. The OpenAPI document is at <a href="{% url 'openapi-schema' %}">{% url 'openapi-schema' %}</a>.</p></noscript>
+  </div>
+  <script src="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui-bundle.js' %}" defer></script>
+  <script src="{% static 'accounts/api-docs.js' %}" defer></script>
+</body>
+</html>

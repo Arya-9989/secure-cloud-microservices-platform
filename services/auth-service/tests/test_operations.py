@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import sys
 from io import StringIO
@@ -106,3 +107,23 @@ def test_openapi_schema_is_served(api: APIClient) -> None:
 
     assert response.status_code == 200
     assert b"/api/v1/auth/token/" in response.content
+
+
+def test_api_docs_page_is_themed_and_runs_without_inline_script(api: APIClient) -> None:
+    response = api.get("/docs/auth/")
+    html = response.content.decode()
+    csp = response["Content-Security-Policy"]
+
+    assert response.status_code == 200
+    assert 'href="/assets/docs.css"' in html  # platform theme, served by the landing service
+    assert "swagger-ui-dist/swagger-ui-bundle.js" in html  # self-hosted, never a CDN
+    assert re.search(r"<script(?![^>]*\bsrc=)", html) is None, "no inline <script>"
+    assert "script-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "unsafe" not in csp
+
+
+def test_every_response_carries_the_content_security_policy(api: APIClient) -> None:
+    response = api.get("/healthz")
+
+    assert response["Content-Security-Policy"].startswith("default-src 'none'")

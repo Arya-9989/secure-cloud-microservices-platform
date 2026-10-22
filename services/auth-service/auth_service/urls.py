@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.urls import include, path
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from django.views.generic import TemplateView
+from drf_spectacular.views import SpectacularAPIView
 
 from accounts.urls import admin_urlpatterns, auth_urlpatterns
 from accounts.views import JWKSView
@@ -17,5 +18,10 @@ urlpatterns = [
 if settings.API_DOCS_ENABLED:
     urlpatterns += [
         path("docs/auth/openapi.json", SpectacularAPIView.as_view(), name="openapi-schema"),
-        path("docs/auth/", SpectacularSwaggerView.as_view(url_name="openapi-schema"), name="docs"),
+        # Swagger UI with the platform theme; scripts are files so the CSP needs no 'unsafe-inline'.
+        path(
+            "docs/auth/",
+            TemplateView.as_view(template_name="accounts/api_docs.html"),
+            name="docs",
+        ),
     ]

@@ -48,6 +48,17 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 public class SecurityConfig {
 
   static final String ROLES_CLAIM = "roles";
+
+  /**
+   * One policy for every response. The Swagger UI page is the only HTML this service serves; its
+   * scripts and styles are same-origin files and its icons are data: URIs, so nothing needs {@code
+   * 'unsafe-inline'} or {@code 'unsafe-eval'}.
+   */
+  static final String CONTENT_SECURITY_POLICY =
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+          + "font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
+          + "frame-ancestors 'none'";
+
   static final List<String> SCOPES = List.of("orders:read", "orders:write", "orders:admin");
 
   @Bean
@@ -58,7 +69,7 @@ public class SecurityConfig {
         .requestCache(AbstractHttpConfigurer::disable)
         .headers(
             h ->
-                h.contentSecurityPolicy(csp -> csp.policyDirectives("frame-ancestors 'none'"))
+                h.contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY))
                     .referrerPolicy(r -> r.policy(ReferrerPolicy.NO_REFERRER)))
         .authorizeHttpRequests(
             auth ->

@@ -314,6 +314,31 @@ class OrdersApiIntegrationTest {
     }
 
     @Test
+    void apiDocsPageIsThemedAndServedUnderAStrictCsp() {
+      ResponseEntity<String> page =
+          http.get().uri("/docs/orders/swagger-ui/index.html").retrieve().toEntity(String.class);
+      ResponseEntity<String> initializer =
+          http.get()
+              .uri("/docs/orders/swagger-ui/swagger-initializer.js")
+              .retrieve()
+              .toEntity(String.class);
+
+      assertThat(page.getStatusCode().value()).isEqualTo(200);
+      assertThat(page.getBody())
+          .contains("href=\"/assets/docs.css\"")
+          .contains("src=\"./swagger-initializer.js\"")
+          .doesNotContain("<script>");
+      assertThat(page.getHeaders().getFirst("Content-Security-Policy"))
+          .contains("script-src 'self'")
+          .contains("frame-ancestors 'none'")
+          .doesNotContain("unsafe");
+      assertThat(initializer.getStatusCode().value()).isEqualTo(200);
+      assertThat(initializer.getBody())
+          .contains("BaseLayout")
+          .contains("/docs/orders/openapi.json");
+    }
+
+    @Test
     void healthAndMetricsAreServedOnTheManagementPortOnly() {
       placeOrder(alice);
       RestClient management =
