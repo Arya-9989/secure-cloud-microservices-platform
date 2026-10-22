@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
+  <img alt="Secure Cloud Microservices Platform. Every request, verified." src="docs/images/hero-light.svg" width="100%">
+</picture>
+
 # Secure Cloud Microservices Platform
 
 [![CI](https://github.com/Arya-9989/secure-cloud-microservices-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Arya-9989/secure-cloud-microservices-platform/actions/workflows/ci.yml)
@@ -6,9 +11,16 @@ A small but production-shaped microservices platform: a **Python identity servic
 
 The platform is deliberately small. The interesting part is the engineering around the services: token lifecycle, authorization boundaries, supply-chain hygiene, and tests that exercise real tokens across language boundaries.
 
-![Grafana dashboard: golden signals, security events and runtime health](docs/screenshots/grafana-dashboard.png)
+The stack opens on a landing page at the gateway root. It explains the security model and probes the public endpoints live from your browser. Both API references share its theme.
 
-<sub>Provisioned Grafana dashboard after running `scripts/demo_traffic.py`. Refresh-token replays and throttled logins are generated on purpose.</sub>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/landing-dark.png">
+  <img alt="Landing page at the gateway root: the headline 'Every request, verified.' above a live console that probes the gateway, the auth-service JWKS, the orders-service metadata and the access policy." src="docs/screenshots/landing-light.png">
+</picture>
+
+| Auth API reference | Orders API reference |
+|---|---|
+| ![Auth service Swagger UI in the platform theme](docs/screenshots/auth-api-docs.png) | ![Orders service Swagger UI in the platform theme](docs/screenshots/orders-api-docs.png) |
 
 ## Contents
 
@@ -25,6 +37,7 @@ flowchart LR
     end
 
     subgraph backend ["backend network (internal, no internet)"]
+        landing["landing<br/>nginx (unprivileged)<br/>static page + docs theme"]
         auth["auth-service<br/>Python 3.12 · Django 6.1 · DRF<br/>issues RS256 JWTs + JWKS"]
         orders["orders-service<br/>Java 21 · Spring Boot 4.1<br/>OAuth2 resource server"]
         pg[("PostgreSQL 17<br/>db: auth · db: orders<br/>one role per service")]
@@ -36,6 +49,7 @@ flowchart LR
     end
 
     client -->|HTTPS :8443 / HTTP :8080| gw
+    gw -->|/ and /assets/| landing
     gw -->|/api/v1/auth, /.well-known/jwks.json| auth
     gw -->|/api/v1/orders, /api/v1/products| orders
     orders -. "JWKS fetch (cached, refetch on unknown kid)" .-> auth
@@ -89,9 +103,10 @@ sequenceDiagram
 |---|---|---|---|
 | **auth-service** | Python 3.12, Django 6.1, DRF 3.18, PyJWT, Argon2, gunicorn | Registration, login, RS256 access tokens, rotating refresh tokens, JWKS, user administration | 8000 API · 9100 metrics |
 | **orders-service** | Java 21, Spring Boot 4.1, Spring Security 7, JPA/Hibernate 7, Flyway | Product catalog and orders; OAuth2 resource server enforcing scopes, roles and ownership | 8080 API · 8081 management |
+| **landing** | nginx 1.30 (unprivileged, Alpine) | Static landing page at `/` and the shared theme for both API references. No server-side code; strict CSP with Trusted Types | 8080 (internal only) |
 | **gateway** | Traefik 3.7 (file provider, no Docker socket) | Single entry point, TLS, routing, rate limiting, headers, access logs | 8080 HTTP · 8443 HTTPS · 8082 metrics |
 | **postgres** | PostgreSQL 17 | Separate database and least-privilege role per service | 5432 (internal only) |
-| **prometheus** / **grafana** | Prometheus 3.9, Grafana 13.2 | Metrics, alert rules, provisioned dashboard | 9090 / 3000 (localhost only) |
+| **prometheus** / **grafana** | Prometheus 3.15, Grafana 13.2 | Metrics, alert rules, provisioned dashboard | 9090 / 3000 (localhost only) |
 
 ## Security model
 
@@ -110,6 +125,7 @@ sequenceDiagram
 | Secrets in source | None. `scripts/init_env.py` generates `.env` locally (git-ignored), and the services refuse to start without required secrets | `.env.example`, `settings.py` |
 | Container breakout / lateral movement | Non-root users, read-only root filesystems, all capabilities dropped, `no-new-privileges`, distroless JVM image. K8s adds restricted Pod Security and default-deny NetworkPolicies | Dockerfiles, `compose.yaml`, `deploy/k8s/` |
 | Vulnerable dependencies | `pip-audit` on locked Python deps. Trivy fails CI on fixable HIGH/CRITICAL in either image (OS and language packages). Dependabot keeps everything current | `.github/workflows/ci.yml` |
+| Script injection in browser-facing pages | No inline script or style anywhere. The landing page sends `default-src 'none'` with `script-src 'self'` and `require-trusted-types-for 'script'`, and writes to the DOM through `textContent` only. Both Swagger UI pages run under `script-src 'self'` without `'unsafe-inline'`: their bootstrap scripts are files and every asset is self-hosted | `services/landing/`, `auth_service/settings.py`, `SecurityConfig.java` |
 | Transport | HTTPS entry point (TLS 1.2+, AEAD ciphers) with HSTS. HTTP→HTTPS redirect is a one-line production switch | `gateway/` |
 
 Errors on both services, including 401 and 403, are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json` documents carrying the `request_id`. The orders service also publishes [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected-resource metadata, which it advertises in `WWW-Authenticate`.
@@ -119,6 +135,7 @@ Errors on both services, including 401 and 403, are [RFC 9457](https://www.rfc-e
 - **Python:** 3.12, Django 6.1, Django REST framework, PyJWT + cryptography, argon2-cffi, psycopg 3, gunicorn, drf-spectacular. Tooling: uv (locked), ruff, mypy `--strict`, pytest, pip-audit.
 - **Java:** 21, Spring Boot 4.1 (Spring Framework 7, Spring Security 7), Hibernate 7, Flyway, Micrometer, springdoc-openapi. Tooling: Maven wrapper, Spotless (google-java-format), `-Werror`, JUnit 5, Testcontainers.
 - **Platform:** Docker (multi-stage, non-root, distroless JVM runtime), Docker Compose, Traefik, PostgreSQL, Prometheus, Grafana, Kustomize.
+- **Web:** hand-written HTML, CSS and one small script, served by unprivileged nginx. Inter and JetBrains Mono are self-hosted (SIL Open Font License). Each service self-hosts its Swagger UI assets.
 - **Delivery:** GitHub Actions (SHA-pinned), Jenkins, Trivy, GHCR, Dependabot, kubeconform.
 
 ## Quickstart
@@ -135,6 +152,7 @@ docker compose up --build --wait           # ~2-3 min on first build
 
 | URL | What |
 |---|---|
+| http://localhost:8080/ | Landing page: architecture, security model and live endpoint probes |
 | http://localhost:8080/docs/auth/ | Auth service Swagger UI |
 | http://localhost:8080/docs/orders/swagger-ui.html | Orders service Swagger UI |
 | https://localhost:8443 | Same routes over TLS (self-signed locally) |
@@ -214,10 +232,16 @@ Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts
 
 - **Metrics:** Both services export the same `http_server_requests_seconds{method,uri,status}` histogram: Micrometer on the JVM, and a matching hand-rolled metric in Python. One PromQL query therefore covers every service. Gunicorn runs several worker processes, so auth-service aggregates them with prometheus_client's multiprocess mode and serves the result from the gunicorn master on an internal port. Business and security metrics include `auth_login_attempts_total{outcome}`, `auth_tokens_issued_total{grant_type}`, `auth_refresh_token_reuse_detected_total` and `orders_placed_total`.
 - **Dashboard:** The provisioned Grafana dashboard ([JSON](observability/grafana/dashboards/platform-overview.json)) has four rows:
-  - golden signals: targets up, throughput, 5xx ratio, worst-service p95
-  - per-service traffic and latency quantiles
-  - security events: login outcomes, token grants, refresh replays
-  - runtime: JVM heap, connection pool, edge latency
+  - golden signals: targets up, gateway throughput, 5xx ratio, slowest p95, logins and orders in the last hour
+  - traffic and latency: requests and p95/p99 latency per service, gateway responses by status class (429s split out), errors by service
+  - security events: login outcomes, token grants, refresh-token replays
+  - runtime and edge: JVM heap, connection pool, gateway p95 per backend
+
+  Every panel has a description and a fixed unit. Each service keeps one colour on every panel (auth-service blue, orders-service orange, gateway green, landing amber). Status colours are reserved for status, such as 2xx, 4xx, 429 and 5xx or login outcomes. Stat tiles stay neutral until they cross the matching alert threshold.
+![Grafana dashboard: golden signals, traffic and latency, security events and runtime health](docs/screenshots/grafana-dashboard.png)
+
+<sub>Provisioned Grafana dashboard after running `scripts/demo_traffic.py`. Refresh-token replays and throttled logins are generated on purpose.</sub>
+
 - **Alerts:** [Prometheus rules](observability/prometheus/alerts.yml) cover target down, 5xx ratio > 5 %, p95 > 1 s, refresh-token replay and sustained failed logins. They are visible under Prometheus → Alerts. Routing them to a pager is listed as future work.
 - **Logs:** Every component writes one JSON object per line with a shared schema (`@timestamp`, `level`, `logger_name`, `message`, `service`, `request_id`, `user_id`). Each request produces exactly one access-log line with route, status and duration.
 - **Correlation:** A client-supplied `X-Request-ID` (validated: 8–128 safe characters) is kept, and otherwise one is generated. The ID is echoed in the response, attached to every log line and problem response, and recorded by the gateway access log. The `Authorization` header is redacted there.
@@ -234,12 +258,13 @@ orders   {"message":"GET /api/v1/products 200","request_id":"smoke-test-0001","u
 | Job | What it proves |
 |---|---|
 | `auth-service` | Locked install, ruff, `mypy --strict`, pytest with coverage **against PostgreSQL**, `pip-audit`, image build, Trivy scan |
+| `landing` | Script syntax check, image build (runs `nginx -t`), Trivy scan |
 | `orders-service` | Spotless, `-Werror` compile, JUnit + Testcontainers (real PostgreSQL), image build, Trivy scan |
 | `platform-config` | `kustomize` + `kubeconform -strict`, compose validation, lint/type-check of e2e tests and scripts |
 | `e2e` | `docker compose up --wait` of the full stack, then the black-box suite through the gateway; logs dumped on failure |
 | `publish` (main only) | Pushes both images to GHCR with branch and immutable `sha-` tags, provenance and SBOM attestations |
 
-Trivy fails the build on any **fixable HIGH/CRITICAL** vulnerability in the OS or language packages. No ignore list is needed today.
+Trivy fails the build on any **fixable HIGH/CRITICAL** vulnerability in the OS or language packages of all three images. No ignore list is needed today.
 
 A [`Jenkinsfile`](Jenkinsfile) implements the same stages with Docker agents for teams that run Jenkins. Its e2e stage reuses the exact images that were scanned. [Dependabot](.github/dependabot.yml) proposes weekly updates for uv, Maven, Docker, Compose and Actions.
 
@@ -247,13 +272,13 @@ A [`Jenkinsfile`](Jenkinsfile) implements the same stages with Docker agents for
 
 | Suite | Count | Run | Highlights |
 |---|---|---|---|
-| auth-service | 76 unit/API tests, 96 % line coverage | `cd services/auth-service && uv run pytest` | RFC 7638 test vector, alg-none / HS256 confusion / foreign-key forgery, rotation + replay, absolute session expiry, throttling, admin authorization, log schema, migrations in sync |
-| orders-service | 48 JUnit tests | `cd services/orders-service && ./mvnw verify` | Full authorization matrix, real RS256 tokens against a JWKS stub (expired, wrong iss/aud, missing sub, HS256, unsigned, foreign key), **key rotation without restart**, ownership 404s, state machine, Flyway on real PostgreSQL |
-| end-to-end | 26 black-box tests | `cd tests/e2e && uv run pytest` (stack running) | Cross-service token verification, forged tokens, per-account throttling, session revocation, correlation IDs, HTTPS/HSTS, docs routing, Prometheus targets and series, Grafana provisioning, edge 429s |
+| auth-service | 79 unit/API tests, 96 % line coverage | `cd services/auth-service && uv run pytest` | RFC 7638 test vector, alg-none / HS256 confusion / foreign-key forgery, rotation + replay, absolute session expiry, throttling, admin authorization, log schema, migrations in sync |
+| orders-service | 49 JUnit tests | `cd services/orders-service && ./mvnw verify` | Full authorization matrix, real RS256 tokens against a JWKS stub (expired, wrong iss/aud, missing sub, HS256, unsigned, foreign key), **key rotation without restart**, ownership 404s, state machine, Flyway on real PostgreSQL |
+| end-to-end | 28 black-box tests | `cd tests/e2e && uv run pytest` (stack running) | Cross-service token verification, forged tokens, per-account throttling, session revocation, correlation IDs, HTTPS/HSTS, docs routing, landing page and docs under strict CSP, Prometheus targets and series, Grafana provisioning, edge 429s |
 
 ## Deploying to Kubernetes
 
-[`deploy/k8s/`](deploy/k8s) is a Kustomize base for the application tier. PostgreSQL is assumed to be a managed service, and the cluster is assumed to run a Traefik ingress controller.
+[`deploy/k8s/`](deploy/k8s) is a Kustomize base for the API tier. The landing page and the API docs belong to the compose stack only (`API_DOCS_ENABLED` is `false` in the manifests). PostgreSQL is assumed to be a managed service, and the cluster is assumed to run a Traefik ingress controller.
 
 ```bash
 kubectl create namespace secure-platform
@@ -293,6 +318,7 @@ CI validates them with `kubeconform -strict`. They have not been applied to a li
 │   │   ├── tests/               #   pytest suite
 │   │   ├── gunicorn.conf.py     #   workers + multiprocess metrics server
 │   │   └── Dockerfile, pyproject.toml, uv.lock
+│   ├── landing/                 # static landing page + shared docs theme (nginx)
 │   └── orders-service/          # Spring Boot resource server
 │       ├── src/main/java/…/     #   config (security, JWT), catalog, order, web
 │       ├── src/main/resources/  #   application.yml, Flyway migrations
@@ -305,7 +331,7 @@ CI validates them with `kubeconform -strict`. They have not been applied to a li
 │   └── postgres/                # per-service database bootstrap
 ├── tests/e2e/                   # black-box suite against the compose stack
 ├── scripts/                     # init_env.py (secrets), demo_traffic.py
-├── docs/screenshots/
+├── docs/                        # README hero (images/) and screenshots/
 ├── compose.yaml
 ├── Jenkinsfile
 └── .github/                     # CI workflow, Dependabot
@@ -321,6 +347,7 @@ CI validates them with `kubeconform -strict`. They have not been applied to a li
 - **Database-backed throttle cache.** Login throttles must be shared across gunicorn workers and replicas. Using the existing PostgreSQL avoids adding Redis just for counters; login is low-volume enough for this.
 - **Traefik with the file provider.** Routes are reviewed as code, and the gateway never gets the Docker socket, which is effectively root on the host.
 - **Spring Boot 4.1 rather than 3.5.** Boot 3.5 left OSS support in June 2026. Its Spring Framework 6.2 line has CRITICAL CVEs with fixes only in 7.x, so upgrading was the way to keep the Trivy gate strict without an ignore list.
+- **The landing page is its own static service.** It explains the whole platform, so it should not live inside one API, and a separate unprivileged nginx container keeps its strict CSP (Trusted Types, no inline code) independent of the APIs. The live probes call only public endpoints through the gateway; health and metrics ports stay unrouted. The shared docs theme is served from the same place, and without it the docs fall back to stock Swagger UI.
 - **Monorepo.** Contracts that span services (token claims, metrics schema, gateway routes, e2e tests) change atomically in one pull request.
 
 ## Roadmap (future work)
