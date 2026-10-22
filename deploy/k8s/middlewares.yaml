@@ -1,0 +1,48 @@
+# The gateway's edge controls (gateway/dynamic/routes.yml), as Traefik CRDs for
+# the cluster's Traefik ingress controller. ingress.yaml attaches them.
+#
+# Rate limits key on the client address Traefik sees. Behind a cloud load
+# balancer, preserve it (externalTrafficPolicy: Local or the PROXY protocol), or
+# every client shares one budget.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+spec:
+  headers:
+    frameDeny: true
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    customResponseHeaders:
+      Server: ""
+      X-Powered-By: ""
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: body-limit
+spec:
+  buffering:
+    maxRequestBodyBytes: 1048576 # 1 MiB
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: auth-rate-limit
+spec:
+  rateLimit:
+    average: 10
+    period: 1s
+    burst: 20
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-rate-limit
+spec:
+  rateLimit:
+    average: 50
+    period: 1s
+    burst: 100

@@ -21,6 +21,7 @@ resources:
   - namespace.yaml
   - auth-service.yaml
   - orders-service.yaml
+  - middlewares.yaml
   - ingress.yaml
   - network-policies.yaml
 
