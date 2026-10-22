@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import uuid
 
 import httpx
@@ -26,8 +27,38 @@ ORDER = {"lines": [{"sku": "KB-001", "quantity": 2}, {"sku": "MS-002", "quantity
 
 class TestGateway:
     def test_unknown_routes_never_reach_a_service(self, gateway: httpx.Client) -> None:
-        for path in ("/", "/admin/", "/actuator/prometheus", "/metrics", "/readyz"):
+        paths = ("/admin/", "/actuator/prometheus", "/metrics", "/readyz", "/healthz", "/assets/")
+        for path in paths:
             assert gateway.get(path).status_code == 404, path
+
+    def test_landing_page_is_served_under_a_strict_csp(self, gateway: httpx.Client) -> None:
+        response = gateway.get("/")
+        csp = response.headers["Content-Security-Policy"]
+
+        assert response.status_code == 200
+        assert response.headers["Content-Type"].startswith("text/html")
+        assert "<h1" in response.text
+        assert re.search(r"<script(?![^>]*\bsrc=)", response.text) is None, "no inline <script>"
+        assert "default-src 'none'" in csp
+        assert "script-src 'self'" in csp
+        assert "require-trusted-types-for 'script'" in csp
+        assert "unsafe" not in csp
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert "Server" not in response.headers
+        assert gateway.post("/").status_code == 405  # static site: GET and HEAD only
+        for asset in ("/assets/landing.css", "/assets/landing.js", "/assets/docs.css"):
+            assert gateway.get(asset).status_code == 200, asset
+
+    def test_api_docs_share_the_platform_theme_under_csp(self, gateway: httpx.Client) -> None:
+        auth = gateway.get("/docs/auth/")
+        orders = gateway.get("/docs/orders/swagger-ui.html", follow_redirects=True)
+
+        for page in (auth, orders):
+            csp = page.headers["Content-Security-Policy"]
+            assert page.status_code == 200
+            assert 'href="/assets/docs.css"' in page.text
+            assert "script-src 'self'" in csp
+            assert "unsafe" not in csp
 
     def test_api_docs_are_served_through_the_gateway(self, gateway: httpx.Client) -> None:
         auth_docs = gateway.get("/docs/auth/")
