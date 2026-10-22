@@ -48,7 +48,12 @@ class PublicEndpoint(APIView):
         return 'Bearer realm="secure-platform"'
 
 
-@extend_schema(tags=["auth"], request=RegisterSerializer, responses={201: UserSerializer})
+@extend_schema(
+    tags=["auth"],
+    summary="Create a customer account (role USER; rate limited per IP)",
+    request=RegisterSerializer,
+    responses={201: UserSerializer},
+)
 class RegisterView(PublicEndpoint):
     throttle_classes = (RegisterThrottle,)
 
@@ -129,7 +134,7 @@ class LogoutView(PublicEndpoint):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=["auth"], responses={200: UserSerializer})
+@extend_schema(tags=["auth"], summary="The authenticated caller", responses={200: UserSerializer})
 class MeView(APIView):
     permission_classes = (IsAuthenticated,)
 
@@ -150,7 +155,7 @@ class JWKSView(PublicEndpoint):
 ADMIN_PERMISSIONS = (IsAuthenticated, HasScope)
 
 
-@extend_schema(tags=["admin"])
+@extend_schema(tags=["admin"], summary="List users (scope users:admin)")
 class AdminUserListView(generics.ListAPIView[User]):
     permission_classes = ADMIN_PERMISSIONS
     required_scope = "users:admin"
@@ -158,7 +163,7 @@ class AdminUserListView(generics.ListAPIView[User]):
     serializer_class = UserSerializer
 
 
-@extend_schema(tags=["admin"])
+@extend_schema(tags=["admin"], summary="Get or update a user (scope users:admin)")
 class AdminUserDetailView(generics.RetrieveUpdateAPIView[User]):
     permission_classes = ADMIN_PERMISSIONS
     required_scope = "users:admin"
@@ -168,7 +173,11 @@ class AdminUserDetailView(generics.RetrieveUpdateAPIView[User]):
     def get_serializer_class(self) -> Any:
         return AdminUserUpdateSerializer if self.request.method == "PATCH" else UserSerializer
 
-    @extend_schema(request=AdminUserUpdateSerializer, responses={200: UserSerializer})
+    @extend_schema(
+        summary="Change role or disable an account; revokes the user's sessions",
+        request=AdminUserUpdateSerializer,
+        responses={200: UserSerializer},
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         target = self.get_object()
         serializer = AdminUserUpdateSerializer(target, data=request.data, partial=True)

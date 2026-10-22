@@ -63,7 +63,7 @@ public class SecurityConfig {
             auth ->
                 auth.requestMatchers(EndpointRequest.to("health", "info", "prometheus"))
                     .permitAll()
-                    .requestMatchers("/docs/orders/**", "/swagger-ui/**")
+                    .requestMatchers("/docs/orders/**")
                     .permitAll()
                     .requestMatchers("/error")
                     .permitAll()

@@ -44,7 +44,6 @@ RUN groupadd --system --gid 10001 app \
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus \
     JWT_PRIVATE_KEY_FILE=/keys/jwt-private-key.pem
 
 COPY --from=build /opt/venv /opt/venv

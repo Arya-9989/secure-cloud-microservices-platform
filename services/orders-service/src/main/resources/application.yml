@@ -78,7 +78,7 @@ springdoc:
   api-docs:
     path: /docs/orders/openapi.json
   swagger-ui:
-    path: /docs/orders
+    path: /docs/orders/swagger-ui.html # UI assets are served from /docs/orders/swagger-ui/
     try-it-out-enabled: true
     persist-authorization: true
 

@@ -12,6 +12,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+# Must be set before any worker imports prometheus_client. It is scoped to the
+# server process on purpose: management commands keep the default registry.
+os.environ.setdefault("PROMETHEUS_MULTIPROC_DIR", "/tmp/prometheus")  # noqa: S108
+
 bind = f"0.0.0.0:{os.environ.get('PORT', '8000')}"
 workers = int(os.environ.get("GUNICORN_WORKERS", "2"))
 threads = int(os.environ.get("GUNICORN_THREADS", "4"))
@@ -48,11 +52,9 @@ METRICS_PORT = int(os.environ.get("METRICS_PORT", "9100"))
 
 def on_starting(server: Any) -> None:
     # Stale per-process files from a previous run would corrupt the aggregates.
-    multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
-    if multiproc_dir:
-        path = Path(multiproc_dir)
-        shutil.rmtree(path, ignore_errors=True)
-        path.mkdir(parents=True, exist_ok=True)
+    path = Path(os.environ["PROMETHEUS_MULTIPROC_DIR"])
+    shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(parents=True, exist_ok=True)
 
 
 def when_ready(server: Any) -> None:

@@ -19,20 +19,23 @@ class RequestContextFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         record.service = self.service
-        record.request_id = request_id_var.get()
-        record.user_id = user_id_var.get()
+        # Values passed explicitly via `extra=` win over the ambient context.
+        if getattr(record, "request_id", None) is None:
+            record.request_id = request_id_var.get()
+        if getattr(record, "user_id", None) is None:
+            record.user_id = user_id_var.get()
         return True
 
 
 class PlatformJsonFormatter(JsonFormatter):
-    """JSON formatter with stable field names shared with the Java services."""
+    """JSON formatter using the same field names as the Java services' logstash format."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs.setdefault(
             "fmt", "%(asctime)s %(levelname)s %(name)s %(message)s %(service)s %(request_id)s"
         )
         kwargs.setdefault(
-            "rename_fields", {"asctime": "timestamp", "levelname": "level", "name": "logger"}
+            "rename_fields", {"asctime": "@timestamp", "levelname": "level", "name": "logger_name"}
         )
         kwargs.setdefault("datefmt", "%Y-%m-%dT%H:%M:%S%z")
         super().__init__(*args, **kwargs)
