@@ -6,10 +6,14 @@ import {
   INTERVAL_MS,
   MAX_INTERVAL_MS,
   Poller,
+  SPARK_FLOOR_MS,
+  SPARK_SLOTS,
+  SPARK_WIDTH,
   TIMEOUT_MS,
   cadenceLabel,
   describe,
   nextDelay,
+  sparkGeometry,
 } from "../site/assets/live.js";
 
 const AUTH = { name: "auth-service", okLabel: "Operational", expected: "a key set" };
@@ -176,4 +180,44 @@ test("default timers are called as plain functions, not as methods of the poller
   } finally {
     globalThis.setTimeout = realSetTimeout;
   }
+});
+
+/** The x coordinates of every command in a path's d attribute. */
+const xs = (d) => [...d.matchAll(/[ML](-?[\d.]+)/g)].map((m) => Number(m[1]));
+
+test("the newest sample always sits on the sparkline's right edge", () => {
+  for (const n of [1, 2, 7, SPARK_SLOTS, SPARK_SLOTS + 10]) {
+    const { line } = sparkGeometry(Array.from({ length: n }, (_, i) => 10 + i));
+    assert.equal(xs(line).at(-1), SPARK_WIDTH, `with ${n} samples`);
+  }
+});
+
+test("one hidden sample waits left of the edge, so sliding never pops a point", () => {
+  const history = Array.from({ length: 40 }, () => 12);
+  const { line, step } = sparkGeometry(history);
+  const x = xs(line);
+  assert.equal(x.length, SPARK_SLOTS + 1);
+  assert.ok(Math.abs(x[0] + step) < 0.01, "oldest kept point is one step off-screen");
+  assert.ok(Math.abs(step - SPARK_WIDTH / (SPARK_SLOTS - 1)) < 1e-9);
+});
+
+test("the scale has a floor and headroom, and points are kept in raw milliseconds", () => {
+  assert.ok(Math.abs(sparkGeometry([1, 2]).max - SPARK_FLOOR_MS * 1.15) < 1e-9);
+  const geo = sparkGeometry([100, 40]);
+  assert.ok(Math.abs(geo.max - 115) < 1e-9);
+  assert.match(geo.line, /^M[\d.]+ -100L120 -40$/);
+});
+
+test("a failure breaks the line and leaves a full-height tick", () => {
+  const { line, fails } = sparkGeometry([5, 6, null, 7, 8]);
+  assert.equal((line.match(/M/g) || []).length, 2, "two separate runs");
+  assert.equal((fails.match(/M/g) || []).length, 1);
+  assert.match(fails, /^M[\d.]+ 3V25$/);
+});
+
+test("an isolated sample still shows as a dot, and an outage alone draws no line", () => {
+  assert.match(sparkGeometry([null, 9, null]).line, /h0\.01$/);
+  const down = sparkGeometry([null, null]);
+  assert.equal(down.line, "");
+  assert.equal((down.fails.match(/M/g) || []).length, 2);
 });

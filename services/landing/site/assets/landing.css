@@ -505,11 +505,13 @@ pre {
   font-weight: 400;
 }
 
+/* The line slides inside a fixed box: overflow clips the sample entering on the
+ * right and the one leaving on the left. Nothing here affects layout. */
 .spark {
   grid-area: spark;
   width: 120px;
   height: 28px;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .spark-base {
@@ -558,6 +560,16 @@ pre {
 
 .probe[data-state="down"] .spark-line {
   stroke: var(--danger);
+}
+
+/* A failed probe breaks the line with a full-height tick that stays in the
+ * history, in the danger colour, until it scrolls off. */
+.spark-fail {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
 
 /* One-shot ping each time a probe answers; never infinite. */
