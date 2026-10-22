@@ -30,7 +30,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -100,6 +102,30 @@ class AuthorizationRulesTest {
     @Test
     void adminApiRequiresAToken() throws Exception {
       mvc.perform(get("/api/v1/admin/orders")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void anInvalidTokenIsUnauthorized() throws Exception {
+      given(jwtDecoder.decode("forged")).willThrow(new BadJwtException("Signed JWT rejected"));
+
+      mvc.perform(get("/api/v1/orders").header("Authorization", "Bearer forged"))
+          .andExpect(status().isUnauthorized())
+          .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    void unavailableSigningKeysAreAServiceErrorNotABadToken() throws Exception {
+      // e.g. a cold JWKS cache while the auth service is down: the token may well be valid, so
+      // the client must not be told to discard it (401), and it is not a server bug (500).
+      given(jwtDecoder.decode("valid-looking"))
+          .willThrow(new JwtException("Couldn't retrieve remote JWK set"));
+
+      mvc.perform(get("/api/v1/orders").header("Authorization", "Bearer valid-looking"))
+          .andExpect(status().isServiceUnavailable())
+          .andExpect(header().exists("Retry-After"))
+          .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+          .andExpect(jsonPath("$.status").value(503))
+          .andExpect(jsonPath("$.request_id").exists());
     }
   }
 

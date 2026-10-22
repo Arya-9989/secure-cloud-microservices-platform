@@ -1,5 +1,14 @@
 package io.github.arya9989.orders.config;
 
+import com.nimbusds.jose.KeySourceException;
+import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.JWKSelector;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
+import com.nimbusds.jose.jwk.source.RateLimitReachedException;
+import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.util.DefaultResourceRetriever;
+import java.net.MalformedURLException;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,31 +26,82 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 /**
  * Verifies access tokens offline against the auth service's JWKS.
  *
- * <p>Only RS256 is accepted, so a token cannot downgrade itself to {@code none} or an HMAC
- * algorithm. Keys are fetched lazily and cached by Nimbus; an unknown {@code kid} triggers a
- * refetch, which is what makes signing-key rotation on the auth service transparent here.
+ * <ul>
+ *   <li>Only RS256 is accepted, so a token cannot downgrade itself to {@code none} or an HMAC
+ *       algorithm. {@code iss}, {@code aud}, {@code sub} and {@code exp} are required.
+ *   <li>The key set is cached ({@code cacheTtl}). A token with an unknown {@code kid} triggers a
+ *       refetch, which is what makes signing-key rotation on the auth service transparent here, but
+ *       refetches are rate limited so forged key ids cannot make every request call the auth
+ *       service.
+ *   <li>If the JWKS endpoint is unreachable, the last good key set keeps working for {@code
+ *       outageTolerance}, so the auth service is not a single point of failure for reads.
+ *   <li>Each JWKS request has a short timeout, so a hanging auth service cannot stall requests.
+ * </ul>
  */
 @Configuration(proxyBeanMethods = false)
 public class JwtDecoderConfig {
 
+  /** JWK sets larger than this are rejected; ours is a few hundred bytes per key. */
+  static final int JWKS_SIZE_LIMIT_BYTES = 64 * 1024;
+
   @Bean
   JwtDecoder jwtDecoder(PlatformSecurityProperties properties) {
     NimbusJwtDecoder decoder =
-        NimbusJwtDecoder.withJwkSetUri(properties.jwkSetUri().toString())
+        NimbusJwtDecoder.withJwkSource(jwkSource(properties))
             .jwsAlgorithm(SignatureAlgorithm.RS256)
             .build();
     decoder.setJwtValidator(tokenValidator(properties));
     return decoder;
   }
 
+  static JWKSource<SecurityContext> jwkSource(PlatformSecurityProperties properties) {
+    PlatformSecurityProperties.Jwks jwks = properties.jwks();
+    int timeoutMillis = Math.toIntExact(jwks.timeout().toMillis());
+    try {
+      JWKSource<SecurityContext> source =
+          JWKSourceBuilder.<SecurityContext>create(
+                  properties.jwkSetUri().toURL(),
+                  new DefaultResourceRetriever(timeoutMillis, timeoutMillis, JWKS_SIZE_LIMIT_BYTES))
+              .cache(jwks.cacheTtl().toMillis(), jwks.timeout().toMillis() + 1_000)
+              .refreshAheadCache(false) // refetch on expiry; outage tolerance covers failures
+              .rateLimited(jwks.refetchMinInterval().toMillis())
+              .outageTolerant(jwks.outageTolerance().toMillis())
+              .build();
+      return new RateLimitMeansNoMatchingKey(source);
+    } catch (MalformedURLException e) {
+      throw new IllegalStateException("platform.security.jwk-set-uri is not a URL", e);
+    }
+  }
+
   static OAuth2TokenValidator<Jwt> tokenValidator(PlatformSecurityProperties properties) {
+    JwtTimestampValidator timestamps = new JwtTimestampValidator(properties.clockSkew());
+    timestamps.setAllowEmptyExpiryClaim(false); // a token without exp would never expire
     return new DelegatingOAuth2TokenValidator<>(
         List.of(
-            new JwtTimestampValidator(properties.clockSkew()),
+            timestamps,
             new JwtIssuerValidator(properties.issuer()),
             new JwtClaimValidator<List<String>>(
                 JwtClaimNames.AUD, aud -> aud != null && aud.contains(properties.audience())),
             new JwtClaimValidator<String>(
                 JwtClaimNames.SUB, sub -> sub != null && !sub.isBlank())));
+  }
+
+  /**
+   * When the refetch budget is spent, a token whose {@code kid} is not in the cached key set is
+   * simply a token without a matching key: rejected as invalid (401). Without this, the rate-limit
+   * signal would surface as a key-source failure, which is reported as the service being unable to
+   * verify tokens (503), and forged key ids could produce a stream of server errors.
+   */
+  record RateLimitMeansNoMatchingKey(JWKSource<SecurityContext> delegate)
+      implements JWKSource<SecurityContext> {
+
+    @Override
+    public List<JWK> get(JWKSelector selector, SecurityContext context) throws KeySourceException {
+      try {
+        return delegate.get(selector, context);
+      } catch (RateLimitReachedException e) {
+        return List.of();
+      }
+    }
   }
 }

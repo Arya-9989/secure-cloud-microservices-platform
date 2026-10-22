@@ -245,6 +245,8 @@ class OrdersApiIntegrationTest {
       String subject = UUID.randomUUID().toString();
       JWTClaimsSet valid = TestTokens.claims(subject, "USER", TestTokens.USER_SCOPES).build();
       return List.of(
+          // no expiry: would never expire
+          TestTokens.custom(SIGNING_KEY, subject, c -> c.expirationTime(null)),
           // expired
           TestTokens.custom(
               SIGNING_KEY,
@@ -278,10 +280,10 @@ class OrdersApiIntegrationTest {
     void keyRotationIsPickedUpFromJwksWithoutRestart() {
       RSAKey rotated = TestTokens.newRsaKey();
       String token = TestTokens.user(rotated, alice);
-      assertThat(get("/api/v1/orders", token).getStatusCode().value()).isEqualTo(401);
 
-      JWKS.publish(rotated); // auth service starts publishing the new key
+      JWKS.publish(rotated); // rotation step 1: the auth service publishes the next key
 
+      // Step 2: tokens signed with it arrive; the unknown kid triggers one JWKS refetch.
       assertThat(get("/api/v1/orders", token).getStatusCode().value()).isEqualTo(200);
       assertThat(get("/api/v1/orders", TestTokens.user(SIGNING_KEY, alice)).getStatusCode().value())
           .as("tokens signed by the previous key stay valid during rotation")

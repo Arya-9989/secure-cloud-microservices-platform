@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -101,7 +102,17 @@ public class SecurityConfig {
                                         .scopes(s -> s.addAll(SCOPES))
                                         .tlsClientCertificateBoundAccessTokens(false)))
                     .authenticationEntryPoint(problems)
-                    .accessDeniedHandler(problems))
+                    .accessDeniedHandler(problems)
+                    // 503 rather than 500 when the signing keys cannot be fetched.
+                    .withObjectPostProcessor(
+                        new ObjectPostProcessor<BearerTokenAuthenticationFilter>() {
+                          @Override
+                          public <O extends BearerTokenAuthenticationFilter> O postProcess(
+                              O filter) {
+                            filter.setAuthenticationFailureHandler(problems);
+                            return filter;
+                          }
+                        }))
         .exceptionHandling(e -> e.authenticationEntryPoint(problems).accessDeniedHandler(problems))
         .addFilterAfter(new AuthenticatedUserFilter(), BearerTokenAuthenticationFilter.class);
     return http.build();
