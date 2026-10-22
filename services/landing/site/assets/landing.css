@@ -475,6 +475,11 @@ pre {
   white-space: nowrap;
 }
 
+/* A failure explains itself in full; healthy details stay on one line. */
+.probe[data-state="down"] .probe-detail {
+  white-space: normal;
+}
+
 .probe-status {
   grid-area: status;
   color: var(--text-2);

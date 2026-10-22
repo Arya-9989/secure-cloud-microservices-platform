@@ -18,8 +18,8 @@ export function nextDelay(failedRounds) {
 }
 
 const GATEWAY_ERRORS = {
-  502: "the gateway reached it, but it did not answer properly",
-  503: "the gateway has no healthy instance to send the request to",
+  502: "it did not answer the gateway properly",
+  503: "the gateway has no healthy instance of it",
   504: "the gateway gave up waiting for it",
 };
 
