@@ -159,3 +159,21 @@ test("the cadence line tells the visitor what the console is doing", () => {
   assert.equal(cadenceLabel({ paused: false, hidden: false, delay: 5000 }), "Checking every 5 seconds.");
   assert.match(cadenceLabel({ paused: false, hidden: false, delay: 20000 }), /next in 20 seconds/);
 });
+
+test("default timers are called as plain functions, not as methods of the poller", async () => {
+  // Browsers reject window.setTimeout called with another `this` ("Illegal
+  // invocation"); Node does not, so emulate the browser's check.
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = function strictSetTimeout(fn, delay) {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    return realSetTimeout(fn, delay);
+  };
+  try {
+    const poller = new Poller({ round: async () => ({ failed: false }) });
+    await poller.start();
+    assert.notEqual(poller.timer, null);
+    poller.pause();
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});

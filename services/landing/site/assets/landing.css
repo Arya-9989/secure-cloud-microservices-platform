@@ -1193,8 +1193,11 @@ pre {
   line-height: 1.05;
 }
 
+/* Units in secondary ink, like the session figures: the cyan accent is kept for
+ * action and live state. */
 .numeral dd span {
-  color: var(--accent);
+  margin-left: 0.06em;
+  color: var(--text-2);
   font-size: 24px;
 }
 

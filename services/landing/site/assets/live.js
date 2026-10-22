@@ -76,7 +76,14 @@ export function cadenceLabel({ paused, hidden, delay }) {
  * scheduling can be tested without waiting.
  */
 export class Poller {
-  constructor({ round, onCadence = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
+  constructor({
+    round,
+    onCadence = () => {},
+    // Wrapped: browsers throw "Illegal invocation" when setTimeout is called as a
+    // method of another object (this.setTimer(...)).
+    setTimer = (fn, delay) => setTimeout(fn, delay),
+    clearTimer = (handle) => clearTimeout(handle),
+  }) {
     this.round = round;
     this.onCadence = onCadence;
     this.setTimer = setTimer;
