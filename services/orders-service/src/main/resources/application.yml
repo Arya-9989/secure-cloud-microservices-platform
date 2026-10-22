@@ -77,6 +77,9 @@ management:
 springdoc:
   api-docs:
     path: /docs/orders/openapi.json
+    # OpenAPI 3.0, like auth-service. Swagger UI resolves 3.1 documents through a
+    # heavier code path, which costs main-thread time on phones.
+    version: openapi_3_0
   swagger-ui:
     path: /docs/orders/swagger-ui.html # UI assets are served from /docs/orders/swagger-ui/
     # The themed page (web/ApiDocsPageController) boots Swagger UI from
