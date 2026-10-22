@@ -38,6 +38,15 @@ x-auth-env: &auth-env
   TRACING_ENABLED: ${TRACING_ENABLED:-false}
   OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
   OTEL_SERVICE_NAME: auth-service
+  # Token signing (docs/adr/0007-kms-signing-and-rotation.md): `local` (the PEM file) or
+  # `vault` (transit, profile `kms`). The file key's public half is always published, so
+  # switching to Vault never invalidates tokens already issued.
+  JWT_SIGNER: ${JWT_SIGNER:-local}
+  JWT_ADDITIONAL_PUBLIC_KEY_FILES: /keys/jwt-public-key.pem
+  VAULT_ADDR: http://vault:8200
+  VAULT_TOKEN_FILE: /keys/vault-token
+  JWT_KEY_PUBLISH_AHEAD_SECONDS: ${JWT_KEY_PUBLISH_AHEAD_SECONDS:-360}
+  JWT_KEYSET_REFRESH_SECONDS: ${JWT_KEYSET_REFRESH_SECONDS:-30}
 
 services:
   postgres:
@@ -71,6 +80,7 @@ services:
       - -c
       - >-
         python manage.py ensure_signing_key /keys/jwt-private-key.pem &&
+        python manage.py export_public_key /keys/jwt-private-key.pem /keys/jwt-public-key.pem &&
         python manage.py migrate --noinput &&
         python manage.py createcachetable &&
         python manage.py bootstrap_admin &&
@@ -104,6 +114,7 @@ services:
     networks: [backend]
     depends_on:
       auth-init: { condition: service_completed_successfully }
+      vault-init: { condition: service_completed_successfully, required: false }
     deploy:
       resources:
         limits: { memory: 384m, cpus: "1.0" }
@@ -272,6 +283,59 @@ services:
       retries: 10
     depends_on:
       prometheus: { condition: service_healthy }
+
+  # KMS for token signing, only with `--profile kms` (or COMPOSE_PROFILES=kms) and
+  # JWT_SIGNER=vault. Dev mode: in-memory, unsealed, a root token from .env. Local and CI
+  # use only; production runs a real Vault cluster (or a cloud KMS, see ADR 0007).
+  vault:
+    image: hashicorp/vault:2.1.2
+    profiles: [kms]
+    <<: [*hardening, *logging]
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:?run python scripts/init_env.py first}
+      SKIP_SETCAP: "true" # dev mode needs no mlock
+    ports:
+      - "127.0.0.1:${VAULT_PORT:-8200}:8200"
+    tmpfs:
+      - /vault/file:uid=100,gid=1000
+      - /vault/logs:uid=100,gid=1000
+      - /home/vault:uid=100,gid=1000 # dev mode writes the root token helper here
+      - /tmp
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
+
+  # Creates the transit key, the least-privilege signer policy and auth-service's token.
+  vault-init:
+    image: hashicorp/vault:2.1.2
+    profiles: [kms]
+    <<: *logging
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "10001:10001" # owns the token file auth-service reads
+    entrypoint: ["sh", "/init/init-transit.sh"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?}
+      HOME: /tmp
+    volumes:
+      - ./deploy/vault/init-transit.sh:/init/init-transit.sh:ro
+      - jwt-keys:/keys
+    tmpfs:
+      - /tmp
+    networks: [backend]
+    depends_on:
+      vault: { condition: service_healthy }
+      auth-init: { condition: service_completed_successfully }
+    restart: "no"
 
   # Trace backend, only with `--profile tracing` (or COMPOSE_PROFILES=tracing) and
   # TRACING_ENABLED=true. The UI binds to localhost; OTLP stays on the backend network.

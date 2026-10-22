@@ -20,6 +20,7 @@ pipeline {
         ALERTMANAGER_IMAGE = 'prom/alertmanager:v0.34.1'
         K6_IMAGE    = 'grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34'
         PG_IMAGE    = 'postgres:17.11-alpine'
+        VAULT_IMAGE = 'hashicorp/vault:2.1.2'
         CRD_SCHEMAS = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
         REGISTRY    = 'ghcr.io/arya-9989/secure-cloud-microservices-platform'
     }
@@ -32,10 +33,12 @@ pipeline {
                     steps {
                         script {
                             // Like CI, the suite runs against PostgreSQL (the refresh-token
-                            // concurrency tests need real row locks).
+                            // concurrency tests need real row locks) and Vault (the KMS signer).
                             docker.image(env.PG_IMAGE).withRun('-e POSTGRES_PASSWORD=ci-only-password -e POSTGRES_DB=auth') { pg ->
-                                docker.image(env.UV_IMAGE).inside("--link ${pg.id}:postgres -e UV_CACHE_DIR=/tmp/uv-cache " +
-                                        '-e DATABASE_URL=postgres://postgres:ci-only-password@postgres:5432/auth') {
+                              docker.image(env.VAULT_IMAGE).withRun('-e VAULT_DEV_ROOT_TOKEN_ID=ci-only-root-token -e SKIP_SETCAP=true') { vault ->
+                                docker.image(env.UV_IMAGE).inside("--link ${pg.id}:postgres --link ${vault.id}:vault -e UV_CACHE_DIR=/tmp/uv-cache " +
+                                        '-e DATABASE_URL=postgres://postgres:ci-only-password@postgres:5432/auth ' +
+                                        '-e VAULT_ADDR=http://vault:8200 -e VAULT_TOKEN=ci-only-root-token') {
                                     dir('services/auth-service') {
                                         sh 'uv sync --locked'
                                         sh 'uv run ruff check . && uv run ruff format --check .'
@@ -53,6 +56,7 @@ pipeline {
                                         '''
                                     }
                                 }
+                              }
                             }
                         }
                     }

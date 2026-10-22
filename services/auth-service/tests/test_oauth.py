@@ -19,10 +19,11 @@ from jwt.algorithms import ECAlgorithm
 from rest_framework.test import APIClient
 
 from accounts import dpop
-from accounts.keys import get_key_set
 from accounts.models import OAuthClient
 from accounts.throttles import ClientTokenClientThrottle
 from accounts.tokens import TokenError, decode_access_token
+
+from .conftest import local_private_key
 
 pytestmark = pytest.mark.django_db
 
@@ -107,7 +108,7 @@ class TestIssuance:
         assert response["DPoP-Nonce"]
         claims = jwt.decode(
             body["access_token"],
-            get_key_set().signing.private_key.public_key(),
+            local_private_key().public_key(),
             algorithms=["RS256"],
             audience=RESOURCE,
         )

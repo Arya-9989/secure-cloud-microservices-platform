@@ -35,6 +35,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s
           --health-timeout 3s --health-retries 20
+      # Vault transit for the KMS signer tests (tests/test_vault.py); dev mode by default.
+      vault:
+        image: hashicorp/vault:2.1.2
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: ci-only-root-token
+          SKIP_SETCAP: "true"
+        ports: ["8200:8200"]
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8200/v1/sys/health" --health-interval 5s
+          --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,9 +60,11 @@ jobs:
         run: uv run ruff check . && uv run ruff format --check .
       - name: Type-check (mypy --strict)
         run: uv run mypy .
-      - name: Test against PostgreSQL
+      - name: Test against PostgreSQL and Vault
         env:
           DATABASE_URL: postgres://postgres:ci-only-password@localhost:5432/auth
+          VAULT_ADDR: http://localhost:8200
+          VAULT_TOKEN: ci-only-root-token
         run: uv run pytest --cov --cov-report=term-missing:skip-covered
       - name: Audit runtime dependencies (pip-audit)
         run: |

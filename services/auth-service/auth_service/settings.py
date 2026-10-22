@@ -105,6 +105,19 @@ JWT_AUDIENCE = env_str("JWT_AUDIENCE", "secure-platform-api")
 JWT_PRIVATE_KEY_FILE = env_str("JWT_PRIVATE_KEY_FILE", "/run/secrets/jwt-private-key.pem")
 JWT_ADDITIONAL_PUBLIC_KEY_FILES = env_list("JWT_ADDITIONAL_PUBLIC_KEY_FILES")
 JWT_CLOCK_SKEW_SECONDS = env_int("JWT_CLOCK_SKEW_SECONDS", 30)
+# Who signs tokens (docs/adr/0007-kms-signing-and-rotation.md): the PEM file above, or
+# Vault transit, where the private key never leaves Vault.
+JWT_SIGNER = env_str("JWT_SIGNER", "local")
+if JWT_SIGNER not in {"local", "vault"}:
+    raise ImproperlyConfigured("JWT_SIGNER must be 'local' or 'vault'")
+VAULT_ADDR = env_str("VAULT_ADDR", "http://vault:8200")
+VAULT_TOKEN_FILE = env_str("VAULT_TOKEN_FILE", "/run/secrets/vault-token")
+JWT_VAULT_KEY = env_str("JWT_VAULT_KEY", "auth-jwt")
+JWT_VAULT_MOUNT = env_str("JWT_VAULT_MOUNT", "transit")
+# A new key version is published this long before it signs (> resource servers' JWKS
+# cache TTL + JWT_KEYSET_REFRESH_SECONDS), and the key set is re-read this often.
+JWT_KEY_PUBLISH_AHEAD_SECONDS = env_int("JWT_KEY_PUBLISH_AHEAD_SECONDS", 360)
+JWT_KEYSET_REFRESH_SECONDS = env_int("JWT_KEYSET_REFRESH_SECONDS", 30)
 ACCESS_TOKEN_TTL_SECONDS = env_int("ACCESS_TOKEN_TTL_SECONDS", 900)
 REFRESH_TOKEN_TTL_SECONDS = env_int("REFRESH_TOKEN_TTL_SECONDS", 7 * 24 * 3600)
 REFRESH_SESSION_MAX_SECONDS = env_int("REFRESH_SESSION_MAX_SECONDS", 30 * 24 * 3600)

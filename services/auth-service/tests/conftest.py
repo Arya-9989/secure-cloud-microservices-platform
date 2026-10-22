@@ -4,13 +4,22 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from accounts.keys import get_key_set
+from accounts.kms import LocalSigner
 from accounts.models import Role, User
 
 PASSWORD = "correct-horse-battery-staple"
+
+
+def local_private_key() -> rsa.RSAPrivateKey:
+    """The test suite signs with a file key; tests that forge tokens need it."""
+    signer = get_key_set().signing
+    assert isinstance(signer, LocalSigner)
+    return signer.private_key
 
 
 @pytest.fixture(autouse=True)

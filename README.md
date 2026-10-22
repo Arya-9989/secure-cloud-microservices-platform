@@ -135,7 +135,8 @@ sequenceDiagram
 | Machine credentials that leak | Service tokens are DPoP-bound (useless without the client's private key), short-lived (5 min), audience-restricted to one resource and limited to client scopes. The secret is stored as an Argon2 hash, and secret guessing is throttled per client and per IP | `accounts/oauth.py`, `accounts/dpop.py`, `dpop/` (orders) |
 | Stale privileges after disable / demotion | Changing a role or deactivating an account revokes every refresh token immediately. Access tokens expire within 15 minutes | `AdminUserDetailView` |
 | JWKS abuse / auth-service outage | orders-service caches the key set for 5 minutes and refetches on an unknown `kid` at most twice per 10 seconds, so forged key IDs cannot flood auth-service. If auth-service is unreachable, the last good key set keeps verifying for 20 minutes (cache TTL + token lifetime). JWKS requests time out after 2 s; when no keys can be obtained the API answers `503` with `Retry-After`, never `401` or `500` | `JwtDecoderConfig.java` |
-| Signing key exposure | The key never lives in the repo or image. It is generated into a volume (`0600`) locally and mounted from a Secret in K8s. `kid` is the RFC 7638 thumbprint, and extra public keys can be published for rotation | `accounts/keys.py`, `ensure_signing_key` |
+| Signing key exposure | The key never lives in the repo or image. With `JWT_SIGNER=vault` it never leaves Vault transit: auth-service sends only the signing input, using a token that can sign but not rotate or export. By default it's a file in a volume (`0600`) locally and a Secret in K8s. `kid` is the RFC 7638 thumbprint | `accounts/keys.py`, `accounts/kms.py`, ADR 0007 |
+| Rotation that breaks tokens | New key versions are published before they sign (6 min, longer than any JWKS cache) and old ones stay published until their last token has expired. A timeline test checks that every token stays verifiable for its whole lifetime | `kms.plan_rotation`, `tests/test_kms.py` |
 | Secrets in source | None. `scripts/init_env.py` generates `.env` locally (git-ignored), and the services refuse to start without required secrets | `.env.example`, `settings.py` |
 | Container breakout / lateral movement | Non-root users, read-only root filesystems, all capabilities dropped, `no-new-privileges`, distroless JVM image. K8s adds restricted Pod Security and default-deny NetworkPolicies | Dockerfiles, `compose.yaml`, `deploy/k8s/` |
 | Tampered or foreign images | CI signs each pushed digest keyless (GitHub OIDC → Fulcio, logged in Rekor) and attests its SPDX SBOM. In the cluster, Kyverno admits a pod only when its image carries both, from this repository's `ci.yml` on `main`, and pins the tag to the verified digest. A native admission policy allows no other registry | `.github/workflows/ci.yml`, `deploy/k8s/admission/` |
@@ -214,7 +215,10 @@ All configuration comes from environment variables. In the compose setup they co
 | `DJANGO_SECRET_KEY` | auth | **required** | Django signing secret (≥ 32 chars) |
 | `DATABASE_URL` | auth | **required** | e.g. `postgres://auth:…@postgres:5432/auth` |
 | `JWT_PRIVATE_KEY_FILE` | auth | `/keys/jwt-private-key.pem` | RSA signing key (PKCS#8 PEM, ≥ 2048 bit) |
-| `JWT_ADDITIONAL_PUBLIC_KEY_FILES` | auth | – | Comma-separated public keys kept in the JWKS during rotation |
+| `JWT_ADDITIONAL_PUBLIC_KEY_FILES` | auth | – (compose: the file key's public half) | Comma-separated public keys kept in the JWKS during rotation or a cut-over to Vault |
+| `JWT_SIGNER` | auth | `local` | `local` (PEM file) or `vault` (transit; profile `kms` in compose) |
+| `VAULT_ADDR` / `VAULT_TOKEN_FILE` / `JWT_VAULT_KEY` / `JWT_VAULT_MOUNT` | auth | `http://vault:8200` / `/run/secrets/vault-token` / `auth-jwt` / `transit` | Where the transit key lives and the file holding the least-privilege signer token |
+| `JWT_KEY_PUBLISH_AHEAD_SECONDS` / `JWT_KEYSET_REFRESH_SECONDS` | auth | `360` / `30` | How long a new key version is published before it signs; how often the key set is re-read |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | both | `urn:secure-platform:auth-service` / `secure-platform-api` | Must match between issuer and resource servers |
 | `ACCESS_TOKEN_TTL_SECONDS` | auth | `900` | Access token lifetime |
 | `REFRESH_TOKEN_TTL_SECONDS` / `REFRESH_SESSION_MAX_SECONDS` | auth | 7 days / 30 days | Sliding and absolute session lifetime |
@@ -287,6 +291,26 @@ done
 ```
 
 Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts/models.py)). `USER` gets `orders:read orders:write`, and `ADMIN` additionally gets `orders:admin users:admin`. Service clients draw from a separate catalogue ([`CLIENT_SCOPES`](services/auth-service/accounts/models.py), today only `orders:fulfil`), so a machine token never carries a person's scopes.
+
+### Signing keys in Vault, with automated rotation
+
+With `JWT_SIGNER=vault`, tokens are signed by Vault's transit engine and the private key never exists in auth-service ([ADR 0007](docs/adr/0007-kms-signing-and-rotation.md)). The signer is an interface (`accounts/kms.py`): the PEM file and Vault implement it today, and the ADR sketches a cloud KMS implementation (AWS KMS needs an account 🔑, so it isn't built).
+
+```bash
+# in .env: profiles and signer together
+COMPOSE_PROFILES=kms            # or tracing,kms
+JWT_SIGNER=vault
+
+docker compose up --build --wait
+docker compose exec auth-service python manage.py rotate_signing_key --show
+# one line per key version: kid, creation time, and "signing", "published, signs from …"
+# or "published until …"
+```
+
+- **Rotation is automated and overlap-safe.** Vault rotates the key every 30 days (`auto_rotate_period`), and `rotate_signing_key` rotates on demand (it needs an admin token, because the service's own token can only sign). A new version is published in the JWKS at once but signs only after `JWT_KEY_PUBLISH_AHEAD_SECONDS`. The previous version stays published until every token it signed has expired. So no token issued before a rotation fails verification after it, and no retired key is trusted longer than that.
+- **The cut-over from the file key is covered too:** compose always publishes the file key's public half (`JWT_ADDITIONAL_PUBLIC_KEY_FILES`), so switching to Vault doesn't log anyone out.
+- **When Vault is down,** the last key set keeps the JWKS (and therefore verification) working, and logins answer `503` with `Retry-After` and a generic message. No half-issued sessions are left behind.
+- **Tested** against a real Vault: Vault integration tests (signing, rotation, least privilege, outage, the rotate command), a timeline test of the overlap rule, and an e2e test that rotates mid-run and checks that tokens from before still work at orders-service while new tokens switch keys.
 
 ### Service-to-service calls: client credentials with DPoP
 
@@ -515,7 +539,6 @@ cosign verify ghcr.io/arya-9989/secure-cloud-microservices-platform/orders-servi
 
 These are **not implemented** yet:
 
-- Signing keys in a KMS/HSM, with automated rotation driven by `JWT_ADDITIONAL_PUBLIC_KEY_FILES`.
 - A Helm chart or Argo CD application for GitOps delivery.
 
 ## License

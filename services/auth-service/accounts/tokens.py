@@ -7,7 +7,9 @@ rotated on every use and revocable server-side.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import logging
 import secrets
 import uuid
@@ -61,9 +63,25 @@ class TokenPair:
 # --------------------------------------------------------------------------- access tokens
 
 
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def encode_jwt(claims: dict[str, Any]) -> str:
+    """An RS256 JWS signed by the current signer (a file key or Vault transit, ADR 0007).
+
+    The signer only ever sees the signing input, so with Vault the private key never
+    reaches this process.
+    """
+    signer = get_key_set().signing
+    header = {"alg": ALGORITHM, "kid": signer.kid, "typ": "JWT"}
+    compact = json.dumps(header, separators=(",", ":")), json.dumps(claims, separators=(",", ":"))
+    signing_input = f"{_b64url(compact[0].encode())}.{_b64url(compact[1].encode())}"
+    return f"{signing_input}.{_b64url(signer.sign(signing_input.encode('ascii')))}"
+
+
 def issue_access_token(user: User, now: datetime | None = None) -> str:
     now = now or timezone.now()
-    keys = get_key_set()
     claims = {
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
@@ -76,9 +94,7 @@ def issue_access_token(user: User, now: datetime | None = None) -> str:
         "exp": int((now + timedelta(seconds=settings.ACCESS_TOKEN_TTL_SECONDS)).timestamp()),
         "jti": str(uuid.uuid4()),
     }
-    return jwt.encode(
-        claims, keys.signing.private_key, algorithm=ALGORITHM, headers={"kid": keys.signing.kid}
-    )
+    return encode_jwt(claims)
 
 
 def issue_client_access_token(
@@ -94,7 +110,6 @@ def issue_client_access_token(
     machine, and a client token can never act as a customer.
     """
     now = now or timezone.now()
-    keys = get_key_set()
     claims: dict[str, Any] = {
         "iss": settings.JWT_ISSUER,
         "aud": audience,
@@ -108,9 +123,7 @@ def issue_client_access_token(
     }
     if jkt is not None:
         claims["cnf"] = {"jkt": jkt}  # RFC 9449 section 6: the token is bound to this key
-    return jwt.encode(
-        claims, keys.signing.private_key, algorithm=ALGORITHM, headers={"kid": keys.signing.kid}
-    )
+    return encode_jwt(claims)
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
@@ -180,12 +193,17 @@ def _pair(user: User, refresh: RefreshToken, raw_refresh: str, now: datetime) ->
 
 
 def issue_token_pair(user: User) -> TokenPair:
-    """Start a new session (token family) for a freshly authenticated user."""
+    """Start a new session (token family) for a freshly authenticated user.
+
+    Atomic: if the access token cannot be signed (the KMS is down), no refresh token is left.
+    """
     now = timezone.now()
     session_expires_at = now + timedelta(seconds=settings.REFRESH_SESSION_MAX_SECONDS)
-    refresh, raw = _new_refresh_token(user, uuid.uuid4(), session_expires_at, now)
+    with transaction.atomic():
+        refresh, raw = _new_refresh_token(user, uuid.uuid4(), session_expires_at, now)
+        pair = _pair(user, refresh, raw, now)
     TOKENS_ISSUED.labels(grant_type="password").inc()
-    return _pair(user, refresh, raw, now)
+    return pair
 
 
 def _lock_family(family_id: uuid.UUID) -> None:
