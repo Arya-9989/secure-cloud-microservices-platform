@@ -13,7 +13,7 @@
   "liveNow": false,
   "refresh": "10s",
   "schemaVersion": 41,
-  "version": 2,
+  "version": 3,
   "time": {
     "from": "now-30m",
     "to": "now"
@@ -121,7 +121,7 @@
       "id": 3,
       "type": "stat",
       "title": "Gateway throughput",
-      "description": "Requests per second routed by the Traefik gateway, every route and status included (5-minute rate).",
+      "description": "Requests per second answered at the edge on every routed path, all statuses included, including the 502/503 the gateway returns itself when a backend is down (5-minute rate).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -138,7 +138,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(traefik_service_requests_total[5m]))",
+          "expr": "sum(rate(traefik_router_requests_total[5m]))",
           "legendFormat": "",
           "refId": "A",
           "range": true
@@ -184,8 +184,8 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "5xx ratio",
-      "description": "Share of service responses with a 5xx status over 5 minutes, health probes excluded. Amber from 1 %, red from 5 % (the HighServerErrorRate alert threshold).",
+      "title": "Gateway 5xx ratio",
+      "description": "Share of routed requests answered with a 5xx over 5 minutes, measured at the gateway: it counts a service's own errors and the 502/503 the gateway returns when a service is down (which the service cannot report). Amber from 1 %, red from 5 % (the GatewayErrorRate alert threshold, which applies per route).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -202,7 +202,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(rate(http_server_requests_seconds_count{status=~\"5..\",uri!~\"/healthz|/readyz|/actuator.*\"}[5m])) / sum(rate(http_server_requests_seconds_count{uri!~\"/healthz|/readyz|/actuator.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(traefik_router_requests_total{code=~\"5..\"}[5m])) / sum(rate(traefik_router_requests_total[5m]))) or vector(0)",
           "legendFormat": "",
           "refId": "A",
           "range": true
@@ -328,8 +328,8 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Logins, last hour",
-      "description": "Password logins that issued a token pair in the last hour.",
+      "title": "Successful logins, 1 h",
+      "description": "Password logins that issued a token pair in the last hour. Failed and throttled attempts are in the Security row.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -393,7 +393,7 @@
     {
       "id": 7,
       "type": "stat",
-      "title": "Orders, last hour",
+      "title": "Orders placed, 1 h",
       "description": "Orders accepted by orders-service in the last hour.",
       "datasource": {
         "type": "prometheus",
@@ -756,7 +756,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Gateway responses by status",
-      "description": "Everything that crossed the edge, by status class. 429 is split out: those requests were shed by the gateway's own per-IP rate limiter before reaching a service.",
+      "description": "Every routed request by status class, as clients saw it at the edge, including the 502/503 the gateway returns when a backend is down. 429 is split out: those requests were shed by the gateway's own per-IP rate limiter before reaching a service.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -773,7 +773,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (class) (label_replace(label_replace(rate(traefik_service_requests_total[$__rate_interval]), \"class\", \"${1}xx\", \"code\", \"([0-9])..\"), \"class\", \"429\", \"code\", \"429\"))",
+          "expr": "sum by (class) (label_replace(label_replace(rate(traefik_router_requests_total[$__rate_interval]), \"class\", \"${1}xx\", \"code\", \"([0-9])..\"), \"class\", \"429\", \"code\", \"429\"))",
           "legendFormat": "{{class}}",
           "refId": "A",
           "range": true
@@ -912,7 +912,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "Errors by service",
-      "description": "Client (4xx, solid) and server (5xx, dashed) error responses per service. 401 and 403 spikes usually mean expired or under-scoped tokens; 5xx means a bug or a failing dependency.",
+      "description": "Client (4xx, solid) and server (5xx, dashed) error responses each service reported itself. 401 and 403 spikes usually mean expired or under-scoped tokens; 5xx means a bug or a failing dependency. A service that is down reports nothing: see Gateway responses by status.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

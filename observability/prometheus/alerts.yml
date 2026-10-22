@@ -19,6 +19,17 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: more than 5% of requests fail with 5xx"
 
+      # What clients see at the edge. When a service is down it reports nothing,
+      # but the gateway answers 502/503/504 on its behalf.
+      - alert: GatewayErrorRate
+        expr: |
+          sum by (router) (rate(traefik_router_requests_total{code=~"5.."}[5m]))
+            / sum by (router) (rate(traefik_router_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.router }}: more than 5% of requests through the gateway fail with 5xx"
+
       - alert: SlowRequests
         expr: |
           histogram_quantile(0.95,
