@@ -96,14 +96,16 @@ jobs:
         with:
           persist-credentials: false
       - name: Check page scripts parse
-        run: node --check site/assets/landing.js && node --check site/assets/docs-theme.js
+        run: for f in site/assets/*.js; do node --check "$f"; done
+      - name: Unit-test the live console logic
+        run: node --test
       - name: Build image (the build runs nginx -t)
         run: docker build --tag landing:ci .
       - name: Scan image (Trivy)
         run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" $TRIVY_ARGS landing:ci
 
   platform-config:
-    name: K8s manifests, e2e & script lint
+    name: K8s manifests, alert rules, e2e & script lint
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,7 +120,18 @@ jobs:
         run: |
           kubectl kustomize deploy/k8s > "$RUNNER_TEMP/k8s.yaml"
           docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
-            -strict -summary -kubernetes-version 1.33.0 - < "$RUNNER_TEMP/k8s.yaml"
+            -strict -summary -kubernetes-version 1.33.0 \
+            -schema-location default -schema-location "$CRD_SCHEMAS" \
+            - < "$RUNNER_TEMP/k8s.yaml"
+        env:
+          # Schemas for the Traefik Middleware CRDs in deploy/k8s/middlewares.yaml.
+          CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+      - name: Check Prometheus config and unit-test the alert rules (promtool)
+        run: |
+          for args in "check config /etc/prometheus/prometheus.yml" "test rules /etc/prometheus/alerts.test.yml"; do
+            docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+              --entrypoint promtool prom/prometheus:v3.15.0 $args
+          done
       - name: Validate compose file
         run: |
           python3 scripts/init_env.py

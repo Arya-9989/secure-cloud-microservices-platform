@@ -1,6 +1,7 @@
 // Jenkins pipeline equivalent to .github/workflows/ci.yml, for teams that run
-// Jenkins. Requires: Docker on the agents, the Docker Pipeline and JUnit
-// plugins, and (for publishing) a "ghcr-credentials" username/token credential.
+// Jenkins. Requires: Docker (with the Compose plugin), kubectl and Python 3 on
+// the agents, the Docker Pipeline and JUnit plugins, and (for publishing) a
+// "ghcr-credentials" username/token credential.
 
 pipeline {
     agent none
@@ -14,6 +15,9 @@ pipeline {
     environment {
         TRIVY_IMAGE = 'aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c'
         UV_IMAGE    = 'ghcr.io/astral-sh/uv:0.13.5-python3.12-trixie-slim'
+        PROM_IMAGE  = 'prom/prometheus:v3.15.0'
+        PG_IMAGE    = 'postgres:17.11-alpine'
+        CRD_SCHEMAS = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
         REGISTRY    = 'ghcr.io/arya-9989/secure-cloud-microservices-platform'
     }
 
@@ -21,26 +25,48 @@ pipeline {
         stage('Verify') {
             parallel {
                 stage('auth-service') {
-                    agent {
-                        docker {
-                            image 'ghcr.io/astral-sh/uv:0.13.5-python3.12-trixie-slim'
-                            args '-e UV_CACHE_DIR=/tmp/uv-cache'
-                        }
-                    }
+                    agent any
                     steps {
-                        dir('services/auth-service') {
-                            sh 'uv sync --locked'
-                            sh 'uv run ruff check . && uv run ruff format --check .'
-                            sh 'uv run mypy .'
-                            sh 'uv run pytest --junitxml=reports/junit.xml'
-                            sh '''
-                                uv export --locked --no-dev --no-emit-project --format requirements-txt -o /tmp/requirements.txt
-                                uv run pip-audit --strict --disable-pip --requirement /tmp/requirements.txt
-                            '''
+                        script {
+                            // Like CI, the suite runs against PostgreSQL (the refresh-token
+                            // concurrency tests need real row locks).
+                            docker.image(env.PG_IMAGE).withRun('-e POSTGRES_PASSWORD=ci-only-password -e POSTGRES_DB=auth') { pg ->
+                                docker.image(env.UV_IMAGE).inside("--link ${pg.id}:postgres -e UV_CACHE_DIR=/tmp/uv-cache " +
+                                        '-e DATABASE_URL=postgres://postgres:ci-only-password@postgres:5432/auth') {
+                                    dir('services/auth-service') {
+                                        sh 'uv sync --locked'
+                                        sh 'uv run ruff check . && uv run ruff format --check .'
+                                        sh 'uv run mypy .'
+                                        sh '''
+                                            for i in $(seq 1 30); do
+                                                uv run python -c "import os, psycopg; psycopg.connect(os.environ['DATABASE_URL']).close()" && break
+                                                sleep 2
+                                            done
+                                        '''
+                                        sh 'uv run pytest --cov --cov-report=term-missing:skip-covered --junitxml=reports/junit.xml'
+                                        sh '''
+                                            uv export --locked --no-dev --no-emit-project --format requirements-txt -o /tmp/requirements.txt
+                                            uv run pip-audit --strict --disable-pip --requirement /tmp/requirements.txt
+                                        '''
+                                    }
+                                }
+                            }
                         }
                     }
                     post {
                         always { junit 'services/auth-service/reports/junit.xml' }
+                    }
+                }
+
+                stage('landing') {
+                    agent {
+                        docker { image 'node:24.19.0-alpine3.24' }
+                    }
+                    steps {
+                        dir('services/landing') {
+                            sh 'for f in site/assets/*.js; do node --check "$f"; done'
+                            sh 'node --test'
+                        }
                     }
                 }
 
@@ -62,13 +88,27 @@ pipeline {
                     }
                 }
 
-                stage('Kubernetes manifests') {
+                stage('Platform config') {
                     agent any
                     steps {
                         sh '''
                             kubectl kustomize deploy/k8s > k8s.yaml
                             docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
-                                -strict -summary -kubernetes-version 1.33.0 - < k8s.yaml
+                                -strict -summary -kubernetes-version 1.33.0 \
+                                -schema-location default -schema-location "$CRD_SCHEMAS" - < k8s.yaml
+                            for args in "check config /etc/prometheus/prometheus.yml" "test rules /etc/prometheus/alerts.test.yml"; do
+                                docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+                                    --entrypoint promtool "$PROM_IMAGE" $args
+                            done
+                            python3 scripts/init_env.py --force
+                            docker compose config --quiet
+                        '''
+                        sh '''
+                            docker run --rm -v "$PWD:/src" -w /src -e UV_CACHE_DIR=/tmp/uv-cache "$UV_IMAGE" sh -c '
+                                uv sync --locked --project tests/e2e &&
+                                uv run --project tests/e2e ruff check tests/e2e scripts &&
+                                uv run --project tests/e2e ruff format --check tests/e2e scripts &&
+                                cd tests/e2e && uv run mypy .'
                         '''
                     }
                 }
