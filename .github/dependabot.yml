@@ -21,6 +21,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "python"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # nginx: even minors are the stable branch, odd minors are mainline. The
+      # landing image stays on stable, so skip mainline releases but keep stable
+      # patches (1.30.x) and the next stable branch (1.32).
+      - dependency-name: "nginxinc/nginx-unprivileged"
+        versions: ["1.31.x", "1.33.x", "1.35.x", "1.37.x", "1.39.x"]
   - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: weekly }
