@@ -657,7 +657,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "auth-service$"
+              "options": ".*auth-service"
             },
             "properties": [
               {
@@ -672,7 +672,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "orders-service$"
+              "options": ".*orders-service"
             },
             "properties": [
               {
@@ -687,7 +687,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^p99"
+              "options": "p99.*"
             },
             "properties": [
               {
@@ -705,7 +705,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^p50"
+              "options": "p50.*"
             },
             "properties": [
               {
@@ -797,7 +797,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^2.."
+              "options": "2.."
             },
             "properties": [
               {
@@ -812,7 +812,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^4.."
+              "options": "4.."
             },
             "properties": [
               {
@@ -827,7 +827,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^5.."
+              "options": "5.."
             },
             "properties": [
               {
