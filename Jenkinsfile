@@ -16,6 +16,7 @@ pipeline {
         TRIVY_IMAGE = 'aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c'
         UV_IMAGE    = 'ghcr.io/astral-sh/uv:0.13.5-python3.12-trixie-slim'
         PROM_IMAGE  = 'prom/prometheus:v3.15.0'
+        JAEGER_IMAGE = 'jaegertracing/jaeger:2.22.0'
         PG_IMAGE    = 'postgres:17.11-alpine'
         CRD_SCHEMAS = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
         REGISTRY    = 'ghcr.io/arya-9989/secure-cloud-microservices-platform'
@@ -100,6 +101,8 @@ pipeline {
                                 docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
                                     --entrypoint promtool "$PROM_IMAGE" $args
                             done
+                            docker run --rm -v "$PWD/observability/jaeger:/etc/jaeger:ro" \
+                                "$JAEGER_IMAGE" validate --config /etc/jaeger/config.yaml
                             python3 scripts/init_env.py --force
                             docker compose config --quiet
                         '''
@@ -141,6 +144,9 @@ pipeline {
                         GATEWAY_HTTPS_PORT   = '18443'
                         PROMETHEUS_PORT      = '19090'
                         GRAFANA_PORT         = '13000'
+                        JAEGER_PORT          = '17686'
+                        COMPOSE_PROFILES     = 'tracing'
+                        TRACING_ENABLED      = 'true'
                     }
                     steps {
                         sh 'python3 scripts/init_env.py --force'
@@ -149,6 +155,7 @@ pipeline {
                             docker run --rm --network host -v "$PWD:/src" -w /src/tests/e2e \
                                 -e GATEWAY_URL=http://localhost:18080 -e GATEWAY_HTTPS_URL=https://localhost:18443 \
                                 -e PROMETHEUS_URL=http://localhost:19090 -e GRAFANA_URL=http://localhost:13000 \
+                                -e JAEGER_URL=http://localhost:17686 -e TRACING_ENABLED=true \
                                 "$UV_IMAGE" uv run --locked pytest -v --junitxml=reports/junit.xml
                         '''
                     }

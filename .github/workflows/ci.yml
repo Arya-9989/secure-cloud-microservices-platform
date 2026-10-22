@@ -132,6 +132,10 @@ jobs:
             docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
               --entrypoint promtool prom/prometheus:v3.15.0 $args
           done
+      - name: Validate the Jaeger config (compose profile tracing)
+        run: |
+          docker run --rm -v "$PWD/observability/jaeger:/etc/jaeger:ro" \
+            jaegertracing/jaeger:2.22.0 validate --config /etc/jaeger/config.yaml
       - name: Validate compose file
         run: |
           python3 scripts/init_env.py
@@ -147,6 +151,10 @@ jobs:
     name: End-to-end (docker compose)
     needs: [auth-service, orders-service, landing, platform-config]
     runs-on: ubuntu-24.04
+    env:
+      # The whole stack with tracing on, so the trace assertions in test_tracing.py run.
+      COMPOSE_PROFILES: tracing
+      TRACING_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

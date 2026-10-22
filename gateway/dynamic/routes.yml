@@ -1,5 +1,8 @@
 # Single entry point for the platform. Every route is explicit: anything not
 # matched here gets a 404 from the gateway and never reaches a service.
+#
+# Traefik renders this file as a Go template. The only expression is the tracing
+# switch: TRACING_ENABLED=true (compose) turns on spans for every router.
 http:
   routers:
     auth:
@@ -9,6 +12,7 @@ http:
         PathPrefix(`/api/v1/admin/users`)
       middlewares: [security-headers, body-limit, auth-rate-limit]
       service: auth-service
+      observability: { tracing: {{ eq (env "TRACING_ENABLED") "true" }} }
 
     # API docs get their own routers so only they are compressed: API responses
     # carrying tokens are never compressed (no BREACH-style length oracle).
@@ -17,6 +21,7 @@ http:
       rule: PathPrefix(`/docs/auth`)
       middlewares: [security-headers, body-limit, auth-rate-limit, compress-static]
       service: auth-service
+      observability: { tracing: {{ eq (env "TRACING_ENABLED") "true" }} }
 
     orders:
       entryPoints: [web, websecure]
@@ -26,12 +31,14 @@ http:
         Path(`/.well-known/oauth-protected-resource`)
       middlewares: [security-headers, body-limit, api-rate-limit]
       service: orders-service
+      observability: { tracing: {{ eq (env "TRACING_ENABLED") "true" }} }
 
     orders-docs:
       entryPoints: [web, websecure]
       rule: PathPrefix(`/docs/orders`)
       middlewares: [security-headers, body-limit, api-rate-limit, compress-static]
       service: orders-service
+      observability: { tracing: {{ eq (env "TRACING_ENABLED") "true" }} }
 
     # The landing page and the shared docs theme. Only these two paths are
     # routed, so the landing container's own /healthz stays internal.
@@ -40,6 +47,7 @@ http:
       rule: Path(`/`) || PathPrefix(`/assets/`)
       middlewares: [security-headers, body-limit, api-rate-limit]
       service: landing
+      observability: { tracing: {{ eq (env "TRACING_ENABLED") "true" }} }
 
   middlewares:
     # Coarse, per-client-IP flood protection at the edge. Credential-stuffing

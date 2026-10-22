@@ -34,6 +34,10 @@ x-auth-env: &auth-env
   LOGIN_RATE_PER_IP: ${LOGIN_RATE_PER_IP:-120/min}
   TRUST_PROXY_PROTO_HEADER: "true"
   LOG_FORMAT: json
+  # Distributed tracing (profile `tracing`, docs/adr/0001-distributed-tracing.md)
+  TRACING_ENABLED: ${TRACING_ENABLED:-false}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  OTEL_SERVICE_NAME: auth-service
 
 services:
   postgres:
@@ -110,6 +114,8 @@ services:
       PLATFORM_SECURITY_ISSUER: ${JWT_ISSUER:-urn:secure-platform:auth-service}
       PLATFORM_SECURITY_AUDIENCE: ${JWT_AUDIENCE:-secure-platform-api}
       PLATFORM_SECURITY_JWK_SET_URI: http://auth-service:8000/.well-known/jwks.json
+      MANAGEMENT_TRACING_EXPORT_ENABLED: ${TRACING_ENABLED:-false}
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     tmpfs:
       - /tmp:size=64m,uid=65532,gid=65532
     networks: [backend]
@@ -136,6 +142,8 @@ services:
     <<: [*hardening, *logging]
     user: "65532:65532"
     command: ["--configFile=/etc/traefik/traefik.yml"]
+    environment:
+      TRACING_ENABLED: ${TRACING_ENABLED:-false} # read by dynamic/routes.yml
     tmpfs:
       - /tmp:size=64m,uid=65532,gid=65532 # buffering middleware spills large bodies here
     ports:
@@ -204,6 +212,30 @@ services:
       retries: 10
     depends_on:
       prometheus: { condition: service_healthy }
+
+  # Trace backend, only with `--profile tracing` (or COMPOSE_PROFILES=tracing) and
+  # TRACING_ENABLED=true. The UI binds to localhost; OTLP stays on the backend network.
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    profiles: [tracing]
+    <<: [*hardening, *logging]
+    user: "10001:10001"
+    command: ["--config=/etc/jaeger/config.yaml"]
+    ports:
+      - "127.0.0.1:${JAEGER_PORT:-16686}:16686"
+    volumes:
+      - ./observability/jaeger/config.yaml:/etc/jaeger/config.yaml:ro
+    tmpfs:
+      - /tmp:size=16m,uid=10001,gid=10001
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:13133/status"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
 
 networks:
   frontend: {}

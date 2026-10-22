@@ -7,9 +7,10 @@ import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.jwk.source.RateLimitReachedException;
 import com.nimbusds.jose.proc.SecurityContext;
-import com.nimbusds.jose.util.DefaultResourceRetriever;
+import io.micrometer.observation.ObservationRegistry;
 import java.net.MalformedURLException;
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -36,6 +37,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
  *   <li>If the JWKS endpoint is unreachable, the last good key set keeps working for {@code
  *       outageTolerance}, so the auth service is not a single point of failure for reads.
  *   <li>Each JWKS request has a short timeout, so a hanging auth service cannot stall requests.
+ *   <li>Each fetch is observed ({@link ObservedJwksRetriever}): a timer, and with tracing on a
+ *       child span that propagates the trace to the auth service.
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
@@ -45,23 +48,31 @@ public class JwtDecoderConfig {
   static final int JWKS_SIZE_LIMIT_BYTES = 64 * 1024;
 
   @Bean
-  JwtDecoder jwtDecoder(PlatformSecurityProperties properties) {
+  JwtDecoder jwtDecoder(
+      PlatformSecurityProperties properties, ObjectProvider<ObservationRegistry> observations) {
+    return build(properties, observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+  }
+
+  /** The production decoder, built outside a Spring context (tests). */
+  static JwtDecoder build(PlatformSecurityProperties properties, ObservationRegistry observations) {
     NimbusJwtDecoder decoder =
-        NimbusJwtDecoder.withJwkSource(jwkSource(properties))
+        NimbusJwtDecoder.withJwkSource(jwkSource(properties, observations))
             .jwsAlgorithm(SignatureAlgorithm.RS256)
             .build();
     decoder.setJwtValidator(tokenValidator(properties));
     return decoder;
   }
 
-  static JWKSource<SecurityContext> jwkSource(PlatformSecurityProperties properties) {
+  static JWKSource<SecurityContext> jwkSource(
+      PlatformSecurityProperties properties, ObservationRegistry observations) {
     PlatformSecurityProperties.Jwks jwks = properties.jwks();
     int timeoutMillis = Math.toIntExact(jwks.timeout().toMillis());
     try {
       JWKSource<SecurityContext> source =
           JWKSourceBuilder.<SecurityContext>create(
                   properties.jwkSetUri().toURL(),
-                  new DefaultResourceRetriever(timeoutMillis, timeoutMillis, JWKS_SIZE_LIMIT_BYTES))
+                  new ObservedJwksRetriever(
+                      timeoutMillis, timeoutMillis, JWKS_SIZE_LIMIT_BYTES, observations))
               .cache(jwks.cacheTtl().toMillis(), jwks.timeout().toMillis() + 1_000)
               .refreshAheadCache(false) // refetch on expiry; outage tolerance covers failures
               .rateLimited(jwks.refetchMinInterval().toMillis())

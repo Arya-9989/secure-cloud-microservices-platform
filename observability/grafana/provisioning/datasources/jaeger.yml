@@ -1,0 +1,11 @@
+# Traces from the compose profile `tracing` (docs/adr/0001-distributed-tracing.md).
+# Without that profile Jaeger is not running and this datasource has nothing to query.
+apiVersion: 1
+
+datasources:
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false

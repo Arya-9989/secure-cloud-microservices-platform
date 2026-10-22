@@ -7,6 +7,7 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.JWTClaimsSet;
 import io.github.arya9989.orders.support.JwksTestServer;
 import io.github.arya9989.orders.support.TestTokens;
+import io.micrometer.observation.ObservationRegistry;
 import java.net.URI;
 import java.time.Duration;
 import java.util.UUID;
@@ -40,14 +41,14 @@ class JwtDecoderConfigTest {
   }
 
   private JwtDecoder decoder(PlatformSecurityProperties.Jwks settings) {
-    return new JwtDecoderConfig()
-        .jwtDecoder(
-            new PlatformSecurityProperties(
-                TestTokens.ISSUER,
-                TestTokens.AUDIENCE,
-                URI.create(jwks.jwkSetUri()),
-                Duration.ofSeconds(30),
-                settings));
+    return JwtDecoderConfig.build(
+        new PlatformSecurityProperties(
+            TestTokens.ISSUER,
+            TestTokens.AUDIENCE,
+            URI.create(jwks.jwkSetUri()),
+            Duration.ofSeconds(30),
+            settings),
+        ObservationRegistry.NOOP);
   }
 
   private String validToken() {

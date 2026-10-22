@@ -50,6 +50,7 @@ flowchart LR
     subgraph obs [Observability]
         prom["Prometheus<br/>scrape + alert rules"]
         graf["Grafana<br/>provisioned dashboard"]
+        jaeger["Jaeger (profile tracing)<br/>OTLP traces"]
     end
 
     client -->|HTTPS :8443 / HTTP :8080| gw
@@ -63,6 +64,10 @@ flowchart LR
     prom -. ":8081 /actuator/prometheus" .-> orders
     prom -. ":8082 /metrics" .-> gw
     graf --> prom
+    graf --> jaeger
+    gw -. "OTLP spans" .-> jaeger
+    auth -. "OTLP spans" .-> jaeger
+    orders -. "OTLP spans" .-> jaeger
 ```
 
 Only the gateway is published on all interfaces. Prometheus and Grafana bind to `127.0.0.1`. The services and the database sit on an `internal: true` Docker network, and metrics and health ports are never routed through the gateway.
@@ -111,6 +116,7 @@ sequenceDiagram
 | **gateway** | Traefik 3.7 (file provider, no Docker socket) | Single entry point, TLS, routing, rate limiting, headers, access logs | 8080 HTTP · 8443 HTTPS · 8082 metrics |
 | **postgres** | PostgreSQL 17 | Separate database and least-privilege role per service | 5432 (internal only) |
 | **prometheus** / **grafana** | Prometheus 3.15, Grafana 13.2 | Metrics, alert rules, provisioned dashboard | 9090 / 3000 (localhost only) |
+| **jaeger** (profile `tracing`) | Jaeger 2.22 (in-memory) | Distributed traces over OTLP/HTTP, Grafana datasource | 16686 UI (localhost only) |
 
 ## Security model
 
@@ -132,6 +138,8 @@ sequenceDiagram
 | Vulnerable dependencies | `pip-audit` on locked Python deps. Trivy fails CI on fixable HIGH/CRITICAL in either image (OS and language packages). Dependabot keeps everything current | `.github/workflows/ci.yml` |
 | Script injection in browser-facing pages | No inline script or style anywhere. The landing page sends `default-src 'none'` with `script-src 'self'` and `require-trusted-types-for 'script'`, and writes to the DOM through `textContent` only. Both Swagger UI pages run under `script-src 'self'` without `'unsafe-inline'`: their bootstrap scripts are files and every asset is self-hosted. All three send `Cross-Origin-Opener-Policy: same-origin`, and bearer tokens typed into a Swagger page are not persisted to `localStorage` | `services/landing/`, `auth_service/settings.py`, `SecurityConfig.java` |
 | Transport | HTTPS entry point (TLS 1.2+, AEAD ciphers) with HSTS. HTTP→HTTPS redirect is a one-line production switch | `gateway/` |
+| Spoofed proxy headers | The gateway deletes header aliases such as `X_Forwarded_For` or `X.Real.Ip`, which a WSGI backend would read as the real `X-Forwarded-For` | `gateway/traefik.yml` |
+| Tracing as an attack surface | Services sample only what the gateway sampled, propagate W3C trace context but no baggage, and record neither request headers (except `X-Request-Id`) nor SQL parameter values | `platform_core/tracing.py`, `application.yml`, ADR 0001 |
 
 Errors on both services, including 401 and 403, are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json` documents carrying the `request_id`. The orders service also publishes [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected-resource metadata, which it advertises in `WWW-Authenticate`.
 
@@ -163,6 +171,7 @@ docker compose up --build --wait           # ~2-3 min on first build
 | https://localhost:8443 | Same routes over TLS (self-signed locally) |
 | http://localhost:3000 | Grafana (user `admin`, password `GRAFANA_ADMIN_PASSWORD` in `.env`) |
 | http://localhost:9090 | Prometheus (targets, alert rules) |
+| http://localhost:16686 | Jaeger (only with tracing on, see [Tracing](#tracing)) |
 
 Host ports come from `.env` (`GATEWAY_HTTP_PORT`, `GATEWAY_HTTPS_PORT`, `PROMETHEUS_PORT`, `GRAFANA_PORT`) or the shell environment. `demo_traffic.py` and the end-to-end suite follow the same settings.
 
@@ -213,6 +222,9 @@ All configuration comes from environment variables. In the compose setup they co
 | `PLATFORM_SECURITY_JWKS_CACHE_TTL` / `_REFETCH_MIN_INTERVAL` | orders | `5m` / `10s` | Key-set cache lifetime; at most two refetches per interval for unknown `kid`s |
 | `PLATFORM_SECURITY_JWKS_OUTAGE_TOLERANCE` / `_TIMEOUT` | orders | `20m` / `2s` | How long the last good key set is used while the JWKS is unreachable; per-request timeout |
 | `AUTH_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | auth-init | – | Creates the first administrator (idempotent) |
+| `TRACING_ENABLED` | gateway, auth, orders (compose) | `false` | Distributed tracing; set together with `COMPOSE_PROFILES=tracing` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_SERVICE_NAME` | auth | `http://jaeger:4318` / `auth-service` | Standard OpenTelemetry settings (all `OTEL_*` variables apply) |
+| `MANAGEMENT_TRACING_EXPORT_ENABLED` / `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` | orders | `false` / `http://jaeger:4318/v1/traces` | The same switch and endpoint in Spring Boot's terms |
 
 ## API overview
 
@@ -253,12 +265,31 @@ Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts
 
 - **Alerts:** six [Prometheus rules](observability/prometheus/alerts.yml) cover target down, a service's own 5xx ratio > 5 %, a route's 5xx ratio at the gateway > 5 % (which includes a service that is down), p95 > 1 s, refresh-token replay and sustained failed logins. Each has a `promtool` unit test ([`alerts.test.yml`](observability/prometheus/alerts.test.yml)). They are visible under Prometheus → Alerts. Routing them to a pager is listed as future work.
 - **Logs:** Every component writes one JSON object per line with a shared schema (`@timestamp`, `level`, `logger_name`, `message`, `service`, `request_id`, `user_id`). Each request produces exactly one access-log line with route, status and duration.
-- **Correlation:** A client-supplied `X-Request-ID` (validated: 8–128 safe characters) is kept, and otherwise one is generated. The ID is echoed in the response, attached to every log line and problem response, and recorded by the gateway access log. The `Authorization` header is redacted there.
+- **Correlation:** A client-supplied `X-Request-ID` (validated: 8–128 safe characters) is kept, and otherwise one is generated. The ID is echoed in the response, attached to every log line and problem response, and recorded by the gateway access log. The `Authorization` header is redacted there. With tracing on, every log line also carries `trace_id` and `span_id`.
 
 ```text
 gateway  {"RequestPath":"/api/v1/products","OriginStatus":200,"request_X-Request-Id":"smoke-test-0001","request_Authorization":"REDACTED",...}
 orders   {"message":"GET /api/v1/products 200","request_id":"smoke-test-0001","user_id":"b3f39626-…","duration_ms":395.4,"service":"orders-service",...}
 ```
+
+### Tracing
+
+OpenTelemetry traces cover every hop: the gateway, the service, each SQL statement and, when orders-service meets an unknown key id, its JWKS fetch and auth-service's handling of it. They are exported over OTLP/HTTP to Jaeger. The design and the trade-offs are in [ADR 0001](docs/adr/0001-distributed-tracing.md).
+
+```bash
+# in .env (or the shell): both switches together
+COMPOSE_PROFILES=tracing
+TRACING_ENABLED=true
+
+docker compose up --build --wait
+# Jaeger UI: http://localhost:16686, or Grafana → Explore → Jaeger
+```
+
+- **Gateway:** Traefik's OTLP exporter is declared in `gateway/traefik.yml`, and `routes.yml` turns it on per router from `TRACING_ENABLED`. With tracing off, Traefik creates no spans and forwards `traceparent` unchanged.
+- **auth-service:** the OpenTelemetry SDK with the Django and psycopg instrumentations, started in each gunicorn worker (`platform_core/tracing.py`).
+- **orders-service:** Spring Boot's OpenTelemetry starter, JDBC spans from `datasource-micrometer`, and a JWKS client (`ObservedJwksRetriever`) that injects `traceparent`, so auth-service joins the trace.
+- **Sampling:** the gateway decides (`sampleRate`, 1.0 locally). The services follow its decision and never start a trace themselves, so health probes are not traced.
+- **What is recorded:** routes, status codes, timings and SQL with placeholders. No credentials, tokens or parameter values; the tests check this.
 
 ## CI/CD
 
@@ -365,7 +396,6 @@ CI validates them with `kubeconform -strict`, including the CRDs. They have not 
 
 These are **not implemented** yet:
 
-- Distributed tracing with OpenTelemetry (gateway → services → database) exported to Tempo or Jaeger.
 - Alertmanager routing for the existing alert rules.
 - OAuth2 client-credentials grant for service-to-service calls, and DPoP / mTLS-bound access tokens.
 - Signing keys in a KMS/HSM, with automated rotation driven by `JWT_ADDITIONAL_PUBLIC_KEY_FILES`.

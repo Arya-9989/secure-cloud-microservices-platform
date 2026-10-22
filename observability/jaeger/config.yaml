@@ -1,0 +1,46 @@
+# Jaeger v2 (an OpenTelemetry Collector distribution) for the compose profile
+# `tracing`: OTLP/HTTP in, a bounded in-memory store, the UI and query API.
+# Traces are lost on restart; that is fine for a local trace viewer.
+service:
+  extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter]
+  telemetry:
+    resource:
+      service.name: jaeger
+    metrics:
+      level: none
+    logs:
+      level: info
+
+extensions:
+  healthcheckv2:
+    use_v2: true
+    http:
+      endpoint: 0.0.0.0:13133
+  jaeger_query:
+    storage:
+      traces: memstore
+    http:
+      endpoint: 0.0.0.0:16686
+  jaeger_storage:
+    backends:
+      memstore:
+        memory:
+          max_traces: 5000 # oldest traces are evicted beyond this (bounds memory)
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318 # internal network only; never published
+
+processors:
+  batch: {}
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: memstore

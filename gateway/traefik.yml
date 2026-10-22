@@ -9,6 +9,10 @@ global:
 entryPoints:
   web:
     address: ":8080"
+    http:
+      # Drop headers that alias managed ones (X_Forwarded_For, X.Real.Ip, ...): WSGI
+      # backends would read them as X-Forwarded-For and trust a spoofed client address.
+      aliasHeadersStrategy: delete
     # Production: redirect all plain-HTTP traffic to HTTPS.
     # http:
     #   redirections:
@@ -22,6 +26,7 @@ entryPoints:
     address: ":8443"
     http:
       tls: {} # dev: Traefik's self-signed default certificate; see dynamic/tls.yml
+      aliasHeadersStrategy: delete
     transport:
       respondingTimeouts:
         readTimeout: 30s
@@ -50,6 +55,19 @@ metrics:
     addRoutersLabels: true
     addServicesLabels: true
     buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+# Distributed tracing (docs/adr/0001-distributed-tracing.md). Declared here, but
+# switched on per router in dynamic/routes.yml from TRACING_ENABLED: with it off,
+# Traefik creates no spans, exports nothing and forwards traceparent unchanged.
+tracing:
+  serviceName: gateway
+  # The edge makes the sampling decision; services follow it (parent-based).
+  # Every request locally; production would sample a fraction, e.g. 0.05.
+  sampleRate: 1.0
+  capturedRequestHeaders: [X-Request-Id] # never Authorization or cookies
+  otlp:
+    http:
+      endpoint: http://jaeger:4318/v1/traces
 
 log:
   level: INFO
