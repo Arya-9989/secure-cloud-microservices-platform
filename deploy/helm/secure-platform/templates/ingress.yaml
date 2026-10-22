@@ -1,0 +1,106 @@
+{{- if .Values.ingress.enabled }}
+{{- $ns := .Release.Namespace -}}
+{{- $i := .Values.ingress -}}
+# Edge controls of the compose gateway (gateway/dynamic/routes.yml) as Traefik CRDs:
+# security headers with HSTS, a body limit and per-IP rate limits, tighter on auth.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  headers:
+    frameDeny: true
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    customResponseHeaders:
+      Server: ""
+      X-Powered-By: ""
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: body-limit
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  buffering:
+    maxRequestBodyBytes: {{ int $i.middlewares.bodyLimitBytes }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: auth-rate-limit
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  rateLimit:
+    {{- toYaml $i.middlewares.authRateLimit | nindent 4 }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-rate-limit
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  rateLimit:
+    {{- toYaml $i.middlewares.apiRateLimit | nindent 4 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: platform-auth
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-security-headers@kubernetescrd,%s-body-limit@kubernetescrd,%s-auth-rate-limit@kubernetescrd" $ns $ns $ns | quote }}
+spec:
+  ingressClassName: {{ $i.className }}
+  tls:
+    - hosts: [{{ $i.host }}]
+      secretName: {{ $i.tlsSecret }}
+  rules:
+    - host: {{ $i.host }}
+      http:
+        paths:
+          - { path: /api/v1/auth, pathType: Prefix, backend: { service: { name: auth-service, port: { name: http } } } }
+          - { path: /api/v1/admin/users, pathType: Prefix, backend: { service: { name: auth-service, port: { name: http } } } }
+          - { path: /.well-known/jwks.json, pathType: Exact, backend: { service: { name: auth-service, port: { name: http } } } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: platform-api
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-security-headers@kubernetescrd,%s-body-limit@kubernetescrd,%s-api-rate-limit@kubernetescrd" $ns $ns $ns | quote }}
+spec:
+  ingressClassName: {{ $i.className }}
+  tls:
+    - hosts: [{{ $i.host }}]
+      secretName: {{ $i.tlsSecret }}
+  rules:
+    - host: {{ $i.host }}
+      http:
+        paths:
+          - { path: /api/v1/orders, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
+          - { path: /api/v1/products, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
+          - { path: /api/v1/admin/orders, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
+          - { path: /api/v1/fulfilment, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
+          - { path: /.well-known/oauth-protected-resource, pathType: Exact, backend: { service: { name: orders-service, port: { name: http } } } }
+{{- end }}

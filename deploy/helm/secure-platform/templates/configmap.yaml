@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+data:
+  JWT_ISSUER: {{ .Values.platform.issuer | quote }}
+  JWT_AUDIENCE: {{ .Values.platform.audience | quote }}

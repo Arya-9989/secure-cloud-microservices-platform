@@ -1,0 +1,188 @@
+{{- $a := .Values.authService -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: auth-service
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: auth-service
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: auth-service
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $a.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+        # Roll the pods when the platform config changes (Kustomize's hashed ConfigMap name).
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: auth-service
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: auth-service
+      containers:
+        - name: auth-service
+          image: {{ include "platform.image" (list . $a.image) }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - { name: http, containerPort: 8000 }
+            - { name: metrics, containerPort: 9100 }
+          env:
+            - name: DJANGO_ALLOWED_HOSTS
+              value: {{ $a.allowedHosts | quote }}
+            - name: JWT_PRIVATE_KEY_FILE
+              value: /keys/jwt-private-key.pem
+            - name: TRUSTED_PROXY_COUNT
+              value: "1"
+            - name: TRUST_PROXY_PROTO_HEADER
+              value: "true"
+            - name: API_DOCS_ENABLED
+              value: "false"
+            - name: OAUTH_RESOURCES
+              value: {{ .Values.platform.ordersResource | quote }}
+            - name: JWT_SIGNER
+              value: {{ $a.signer | quote }}
+            {{- if eq $a.signer "vault" }}
+            - name: VAULT_ADDR
+              value: {{ required "authService.vault.address is required with signer=vault" $a.vault.address | quote }}
+            - name: VAULT_TOKEN_FILE
+              value: /vault/token
+            - name: JWT_VAULT_KEY
+              value: {{ $a.vault.key | quote }}
+            {{- end }}
+            {{- if .Values.tracing.enabled }}
+            - name: TRACING_ENABLED
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.tracing.otlpEndpoint | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: {{ $a.existingSecret }}
+          volumeMounts:
+            {{- if eq $a.signer "vault" }}
+            - { name: vault-token, mountPath: /vault, readOnly: true }
+            {{- else }}
+            - { name: signing-key, mountPath: /keys, readOnly: true }
+            {{- end }}
+            - { name: tmp, mountPath: /tmp }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml $a.resources | nindent 12 }}
+          securityContext:
+            {{- include "platform.containerSecurity" . | nindent 12 }}
+      volumes:
+        {{- if eq $a.signer "vault" }}
+        - name: vault-token
+          secret:
+            secretName: {{ required "authService.vault.tokenSecret is required with signer=vault" $a.vault.tokenSecret }}
+            defaultMode: 0400
+        {{- else }}
+        - name: signing-key
+          secret:
+            secretName: {{ $a.signingKeySecret }}
+            defaultMode: 0400
+        {{- end }}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: auth-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ $a.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-service
+{{- if $a.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-service
+  minReplicas: {{ $a.autoscaling.minReplicas }}
+  maxReplicas: {{ $a.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ $a.autoscaling.targetCPUUtilizationPercentage }} }
+{{- end }}

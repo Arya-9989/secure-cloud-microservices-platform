@@ -1,0 +1,41 @@
+# Argo CD AppProject: what the platform's Applications may deploy, and where.
+# Applied once into the Argo CD namespace (docs/adr/0008-gitops-delivery.md).
+#
+#   kubectl apply -n argocd -f deploy/argocd/
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: secure-platform
+  namespace: argocd
+spec:
+  description: Secure Cloud Microservices Platform, API tier and its admission policies
+  sourceRepos:
+    - https://github.com/Arya-9989/secure-cloud-microservices-platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: secure-platform
+  # Cluster-scoped kinds this project may manage: only the admission policies
+  # (deploy/k8s/admission). Everything else is namespaced.
+  clusterResourceWhitelist:
+    - group: policies.kyverno.io
+      kind: ImageValidatingPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicyBinding
+  namespaceResourceWhitelist:
+    - { group: "", kind: ConfigMap }
+    - { group: "", kind: Service }
+    - { group: "", kind: ServiceAccount }
+    - { group: apps, kind: Deployment }
+    - { group: batch, kind: Job }
+    - { group: policy, kind: PodDisruptionBudget }
+    - { group: autoscaling, kind: HorizontalPodAutoscaler }
+    - { group: networking.k8s.io, kind: Ingress }
+    - { group: networking.k8s.io, kind: NetworkPolicy }
+    - { group: traefik.io, kind: Middleware }
+  # Secrets are never managed from Git: they come from External Secrets / Sealed Secrets.
+  namespaceResourceBlacklist:
+    - { group: "", kind: Secret }
+  orphanedResources:
+    warn: true

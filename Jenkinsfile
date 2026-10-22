@@ -1,5 +1,5 @@
 // Jenkins pipeline equivalent to .github/workflows/ci.yml, for teams that run
-// Jenkins. Requires: Docker (with the Compose plugin), kubectl and Python 3 on
+// Jenkins. Requires: Docker (with the Compose plugin), kubectl, Helm and Python 3 on
 // the agents, the Docker Pipeline and JUnit plugins, and (for publishing) a
 // "ghcr-credentials" username/token credential.
 
@@ -117,10 +117,20 @@ pipeline {
                                 --entrypoint sh "$ALERTMANAGER_IMAGE" /etc/alertmanager/routes.test.sh
                             python3 scripts/init_env.py --force
                             docker compose config --quiet
+                            helm lint deploy/helm/secure-platform --strict
+                            helm template platform deploy/helm/secure-platform --namespace secure-platform > helm.yaml
+                            docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+                                -strict -summary -kubernetes-version 1.33.0 \
+                                -schema-location default -schema-location "$CRD_SCHEMAS" - < helm.yaml
+                            kubectl kustomize deploy/k8s > kustomize.yaml
+                            docker run --rm -v "$PWD/deploy/argocd:/argocd:ro" ghcr.io/yannh/kubeconform:v0.7.0 \
+                                -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" \
+                                /argocd/project.yaml /argocd/applications.yaml
                         '''
                         sh '''
                             docker run --rm -v "$PWD:/src" -w /src -e UV_CACHE_DIR=/tmp/uv-cache "$UV_IMAGE" sh -c '
                                 uv sync --locked --project tests/e2e &&
+                                uv run --project tests/e2e python scripts/check_helm_kustomize.py kustomize.yaml helm.yaml &&
                                 uv run --project tests/e2e ruff check tests/e2e scripts observability &&
                                 uv run --project tests/e2e ruff format --check tests/e2e scripts observability &&
                                 uv run --project tests/e2e mypy --strict observability/alert-sink &&

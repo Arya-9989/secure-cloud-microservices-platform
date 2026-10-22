@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["imageRegistry", "platform", "authService", "ordersService"],
+  "definitions": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" }
+      },
+      "additionalProperties": false
+    },
+    "autoscaling": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "rateLimit": {
+      "type": "object",
+      "required": ["average", "period", "burst"],
+      "properties": {
+        "average": { "type": "integer", "minimum": 1 },
+        "period": { "type": "string", "pattern": "^[0-9]+(ms|s|m)$" },
+        "burst": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "imageRegistry": { "type": "string", "minLength": 1 },
+    "imagePullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] },
+    "platform": {
+      "type": "object",
+      "required": ["issuer", "audience", "ordersResource"],
+      "properties": {
+        "issuer": { "type": "string", "minLength": 1 },
+        "audience": { "type": "string", "minLength": 1 },
+        "ordersResource": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "authService": {
+      "type": "object",
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "allowedHosts": { "type": "string", "minLength": 1 },
+        "existingSecret": { "type": "string", "minLength": 1 },
+        "signer": { "enum": ["local", "vault"] },
+        "signingKeySecret": { "type": "string" },
+        "vault": {
+          "type": "object",
+          "properties": {
+            "address": { "type": "string" },
+            "tokenSecret": { "type": "string" },
+            "key": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "migrations": {
+          "type": "object",
+          "properties": { "enabled": { "type": "boolean" } },
+          "additionalProperties": false
+        },
+        "resources": { "type": "object" },
+        "autoscaling": { "$ref": "#/definitions/autoscaling" },
+        "podDisruptionBudget": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "ordersService": {
+      "type": "object",
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "existingSecret": { "type": "string", "minLength": 1 },
+        "resources": { "type": "object" },
+        "autoscaling": { "$ref": "#/definitions/autoscaling" },
+        "podDisruptionBudget": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "tracing": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "otlpEndpoint": { "type": "string", "pattern": "^https?://" }
+      },
+      "additionalProperties": false
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "host": { "type": "string", "minLength": 1 },
+        "tlsSecret": { "type": "string", "minLength": 1 },
+        "middlewares": {
+          "type": "object",
+          "properties": {
+            "bodyLimitBytes": { "type": "integer", "minimum": 1024 },
+            "authRateLimit": { "$ref": "#/definitions/rateLimit" },
+            "apiRateLimit": { "$ref": "#/definitions/rateLimit" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "networkPolicies": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingressNamespace": { "type": "string", "minLength": 1 },
+        "monitoringNamespace": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

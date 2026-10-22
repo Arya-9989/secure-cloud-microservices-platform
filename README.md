@@ -152,9 +152,9 @@ Errors on both services, including 401 and 403, are [RFC 9457](https://www.rfc-e
 
 - **Python:** 3.12, Django 6.1, Django REST framework, PyJWT + cryptography, argon2-cffi, psycopg 3, gunicorn, drf-spectacular. Tooling: uv (locked), ruff, mypy `--strict`, pytest, pip-audit.
 - **Java:** 21, Spring Boot 4.1 (Spring Framework 7, Spring Security 7), Hibernate 7, Flyway, Micrometer, springdoc-openapi. Tooling: Maven wrapper, Spotless (google-java-format), `-Werror`, JUnit 5, Testcontainers.
-- **Platform:** Docker (multi-stage, non-root, distroless JVM runtime), Docker Compose, Traefik, PostgreSQL, Prometheus, Grafana, Kustomize.
+- **Platform:** Docker (multi-stage, non-root, distroless JVM runtime), Docker Compose, Traefik, PostgreSQL, Prometheus, Alertmanager, Grafana, Jaeger (OpenTelemetry), HashiCorp Vault (transit), Kustomize, Helm, Argo CD, Kyverno.
 - **Web:** hand-written HTML, CSS and one small script, served by unprivileged nginx. Inter and JetBrains Mono are self-hosted (SIL Open Font License). Each service self-hosts its Swagger UI assets.
-- **Delivery:** GitHub Actions (SHA-pinned), Jenkins, Trivy, GHCR, Dependabot, kubeconform.
+- **Delivery:** GitHub Actions (SHA-pinned), Jenkins, Trivy, cosign (keyless) + SBOM attestations, GHCR, Dependabot, kubeconform, k6, kind.
 
 ## Quickstart
 
@@ -394,7 +394,7 @@ docker compose up --build --wait
 | `auth-service` | Locked install, ruff, `mypy --strict`, pytest with coverage **against PostgreSQL**, `pip-audit`, image build, Trivy scan |
 | `landing` | Script syntax check, live-console unit tests (`node --test`), image build (runs `nginx -t`), Trivy scan |
 | `orders-service` | Spotless, `-Werror` compile, JUnit + Testcontainers (real PostgreSQL), image build, Trivy scan |
-| `platform-config` | `kustomize` + `kubeconform -strict` (with Traefik CRD schemas), `promtool` config check and alert-rule tests, `amtool check-config` and routing-tree tests, Jaeger config validation, compose validation, lint of e2e tests, scripts and the alert sink, type-checks, alert-sink unit tests |
+| `platform-config` | `kustomize` + `kubeconform -strict` (with Traefik and Kyverno CRD schemas), Helm lint/template/kubeconform plus Helm ↔ Kustomize parity, Argo CD manifests, `promtool` config check and alert-rule tests, `amtool check-config` and routing-tree tests, Jaeger config validation, compose validation, lint of e2e tests, scripts and the alert sink, type-checks, alert-sink unit tests |
 | `e2e` | `docker compose up --wait` of the full stack (tracing on), the black-box suite through the gateway, then the k6 load test, which fails the job on any missed latency or error SLO; logs dumped on failure, k6 summary kept as an artifact |
 | `admission` | kind cluster + local registry + Kyverno: signed images are admitted (and pinned to their digest), and unsigned, wrongly signed, SBOM-less or foreign-registry images are rejected |
 | `publish` (main only) | Pushes both images to GHCR with branch and immutable `sha-` tags, provenance and SBOM; signs each digest keyless with cosign, attests the SPDX SBOM, and verifies both against the workflow's identity |
@@ -462,6 +462,31 @@ What the manifests include:
 
 CI validates them with `kubeconform -strict`, including the CRDs. They have not been applied to a live cluster as part of this repository's checks.
 
+### Helm chart and Argo CD
+
+[`deploy/helm/secure-platform`](deploy/helm/secure-platform) packages the same resources as `deploy/k8s` with validated values (`values.schema.json`), and CI proves the two render the same thing. [`deploy/argocd`](deploy/argocd) delivers it through GitOps ([ADR 0008](docs/adr/0008-gitops-delivery.md)).
+
+```bash
+kubectl apply -f deploy/k8s/namespace.yaml          # restricted Pod Security labels
+# ...create the Secrets listed in values.yaml...
+helm install platform deploy/helm/secure-platform -n secure-platform \
+  --set authService.image.digest=sha256:… --set ordersService.image.digest=sha256:…
+
+# or GitOps: Argo CD keeps the cluster equal to main
+kubectl apply -n argocd -f deploy/argocd/
+```
+
+- **Values worth knowing:** `authService.signer=vault` with `authService.vault.address` and `.tokenSecret` (ADR 0007); `tracing.enabled` with `tracing.otlpEndpoint` (ADR 0001); and image digests, which pin exactly what the admission policy verifies. The schema rejects unknown keys, signers and malformed digests.
+- **The migration** runs as a `pre-install`/`pre-upgrade` hook (an Argo CD PreSync hook). A `checksum/config` annotation rolls the pods when the platform config changes.
+- **Argo CD:** an `AppProject` limited to this repository and namespace, which may not manage Secrets. Two Applications: the admission policies first (sync wave −1), then the chart, automated with prune and self-heal.
+- **CI:**
+  - `helm lint --strict`;
+  - `helm template | kubeconform -strict` for the defaults and a Vault-plus-tracing variant;
+  - `scripts/check_helm_kustomize.py`: each of the 23 shared resources must have the same spec in both;
+  - kubeconform of the Argo CD manifests.
+
+  The chart hasn't been installed on a live cluster as part of these checks.
+
 ### Signed images only (admission control)
 
 [`deploy/k8s/admission`](deploy/k8s/admission) holds two cluster-scoped policies that a cluster admin applies once (`kubectl apply -k deploy/k8s/admission`, Kyverno ≥ 1.17). See [ADR 0005](docs/adr/0005-image-signing.md).
@@ -509,14 +534,21 @@ cosign verify ghcr.io/arya-9989/secure-cloud-microservices-platform/orders-servi
 │       ├── src/main/resources/  #   application.yml, Flyway migrations
 │       ├── src/test/java/…/     #   WebMvc authz matrix, Testcontainers integration
 │       └── Dockerfile, pom.xml, mvnw
-├── gateway/                     # Traefik static + dynamic (routes, TLS) config
-├── observability/               # Prometheus config, alerts + promtool tests, Grafana provisioning + dashboard
+├── gateway/                     # Traefik static + dynamic (routes, TLS, tracing switch) config
+├── observability/               # Prometheus (alerts + promtool tests), Alertmanager (routes + tests),
+│                                #   alert-sink, Jaeger, Grafana provisioning + dashboard
 ├── deploy/
-│   ├── k8s/                     # Kustomize manifests
+│   ├── k8s/                     # Kustomize manifests; admission/ = signature + registry policies
+│   ├── helm/secure-platform/    # Helm chart, kept equal to the Kustomize base by CI
+│   ├── argocd/                  # AppProject + Applications for GitOps delivery
+│   ├── vault/                   # transit key, signer policy and token (compose profile kms)
 │   └── postgres/                # per-service database bootstrap
-├── tests/e2e/                   # black-box suite against the compose stack
-├── scripts/                     # init_env.py (secrets), demo_traffic.py
-├── docs/                        # README hero (images/) and screenshots/
+├── tests/
+│   ├── e2e/                     # black-box suite against the compose stack
+│   ├── load/                    # k6 scenarios and latency SLOs
+│   └── admission/               # kind + Kyverno proof of the admission policies
+├── scripts/                     # init_env.py (secrets), demo_traffic.py, check_helm_kustomize.py
+├── docs/                        # adr/ (design records), README hero (images/), screenshots/
 ├── compose.yaml
 ├── Jenkinsfile
 └── .github/                     # CI workflow, Dependabot
@@ -537,9 +569,11 @@ cosign verify ghcr.io/arya-9989/secure-cloud-microservices-platform/orders-servi
 
 ## Roadmap (future work)
 
-These are **not implemented** yet:
+Every item of the original roadmap is built and documented above. Known next steps, not implemented:
 
-- A Helm chart or Argo CD application for GitOps delivery.
+- A cloud KMS signer (AWS KMS, sketched in ADR 0007). 🔑 Needs a cloud account.
+- mTLS-bound tokens (RFC 8705) for clients that already hold certificates (ADR 0006 explains why DPoP came first).
+- Alertmanager as a gossip cluster with persistent state, and tail-based trace sampling in an OpenTelemetry Collector.
 
 ## License
 

@@ -140,6 +140,32 @@ jobs:
         env:
           # CRD schemas: Traefik Middleware (deploy/k8s), Kyverno ImageValidatingPolicy (admission).
           CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+      - name: Install Helm (checksum-verified release)
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/helm.tgz" https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz
+          echo "86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb  $RUNNER_TEMP/helm.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP" linux-amd64/helm
+          sudo install -m 0755 "$RUNNER_TEMP/linux-amd64/helm" /usr/local/bin/helm
+      - name: Helm chart (lint, template | kubeconform, parity with Kustomize) and Argo CD manifests
+        run: |
+          chart=deploy/helm/secure-platform
+          helm lint "$chart" --strict
+          for values in "" "--set authService.signer=vault,authService.vault.address=http://vault:8200,authService.vault.tokenSecret=auth-vault-token,tracing.enabled=true"; do
+            # shellcheck disable=SC2086 # $values is a list of flags
+            helm template platform "$chart" --namespace secure-platform $values > "$RUNNER_TEMP/helm.yaml"
+            docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+              -strict -summary -kubernetes-version 1.33.0 \
+              -schema-location default -schema-location "$CRD_SCHEMAS" - < "$RUNNER_TEMP/helm.yaml"
+          done
+          helm template platform "$chart" --namespace secure-platform > "$RUNNER_TEMP/helm.yaml"
+          kubectl kustomize deploy/k8s > "$RUNNER_TEMP/kustomize.yaml"
+          uv run --locked --project tests/e2e python scripts/check_helm_kustomize.py \
+            "$RUNNER_TEMP/kustomize.yaml" "$RUNNER_TEMP/helm.yaml"
+          docker run --rm -v "$PWD/deploy/argocd:/argocd:ro" ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" \
+            /argocd/project.yaml /argocd/applications.yaml
+        env:
+          CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
       - name: Check Prometheus config and unit-test the alert rules (promtool)
         run: |
           for args in "check config /etc/prometheus/prometheus.yml" "test rules /etc/prometheus/alerts.test.yml"; do

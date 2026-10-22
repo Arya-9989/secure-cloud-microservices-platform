@@ -80,6 +80,8 @@ spec:
               valueFrom: { configMapKeyRef: { name: platform-config, key: JWT_ISSUER } }
             - name: PLATFORM_SECURITY_AUDIENCE
               valueFrom: { configMapKeyRef: { name: platform-config, key: JWT_AUDIENCE } }
+            - name: PLATFORM_SECURITY_RESOURCE # the `aud` of service (client credentials) tokens
+              value: urn:secure-platform:orders-service
             - name: PLATFORM_SECURITY_JWK_SET_URI
               value: http://auth-service:8000/.well-known/jwks.json
             - name: SPRINGDOC_API_DOCS_ENABLED
