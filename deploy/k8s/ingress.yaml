@@ -1,0 +1,25 @@
+# Edge routing mirrors gateway/dynamic/routes.yml. TLS terminates at the
+# ingress controller using the certificate in Secret "platform-tls"
+# (e.g. issued by cert-manager).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: platform
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [api.example.com]
+      secretName: platform-tls
+  rules:
+    - host: api.example.com
+      http:
+        paths:
+          - { path: /api/v1/auth, pathType: Prefix, backend: { service: { name: auth-service, port: { name: http } } } }
+          - { path: /api/v1/admin/users, pathType: Prefix, backend: { service: { name: auth-service, port: { name: http } } } }
+          - { path: /.well-known/jwks.json, pathType: Exact, backend: { service: { name: auth-service, port: { name: http } } } }
+          - { path: /api/v1/orders, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
+          - { path: /api/v1/products, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
+          - { path: /api/v1/admin/orders, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }

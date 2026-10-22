@@ -1,0 +1,69 @@
+# Traefik static configuration: entry points, providers, observability.
+# Routing lives in dynamic/ (file provider) so it is reviewable as code and
+# Traefik never needs access to the Docker socket.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+entryPoints:
+  web:
+    address: ":8080"
+    # Production: redirect all plain-HTTP traffic to HTTPS.
+    # http:
+    #   redirections:
+    #     entryPoint: { to: websecure, scheme: https, permanent: true }
+    transport:
+      respondingTimeouts:
+        readTimeout: 30s
+        writeTimeout: 30s
+        idleTimeout: 90s
+  websecure:
+    address: ":8443"
+    http:
+      tls: {} # dev: Traefik's self-signed default certificate; see dynamic/tls.yml
+    transport:
+      respondingTimeouts:
+        readTimeout: 30s
+        writeTimeout: 30s
+        idleTimeout: 90s
+  metrics:
+    address: ":8082" # internal only: scraped by Prometheus, not published
+  ping:
+    address: ":8081"
+
+ping:
+  entryPoint: ping
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+api:
+  dashboard: false
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+  fields:
+    defaultMode: keep
+    names:
+      ClientUsername: drop
+    headers:
+      defaultMode: drop
+      names:
+        X-Request-Id: keep # request_X-Request-Id and downstream_X-Request-Id
+        User-Agent: keep
+        Authorization: redact

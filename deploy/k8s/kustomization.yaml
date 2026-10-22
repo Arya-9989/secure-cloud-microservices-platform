@@ -1,0 +1,41 @@
+# Kubernetes deployment of the application tier.
+#
+#   kubectl kustomize deploy/k8s | kubeconform -strict -summary   # validate (CI does this)
+#   kubectl apply -k deploy/k8s                                    # deploy
+#
+# Assumptions (documented in README "Deploying to Kubernetes"):
+# - PostgreSQL is a managed service; connection details arrive via Secrets.
+# - The cluster runs an ingress controller with IngressClass "traefik".
+# - Secrets below are created out-of-band (External Secrets, Sealed Secrets,
+#   or `kubectl create secret`); they are never committed to this repository.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: secure-platform
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: secure-platform
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - auth-service.yaml
+  - orders-service.yaml
+  - ingress.yaml
+  - network-policies.yaml
+
+configMapGenerator:
+  - name: platform-config
+    literals:
+      - JWT_ISSUER=urn:secure-platform:auth-service
+      - JWT_AUDIENCE=secure-platform-api
+
+# Images are published by CI to GHCR. Pin a release by overriding newTag
+# (CI pushes both the branch tag and an immutable sha-<commit> tag).
+images:
+  - name: auth-service
+    newName: ghcr.io/arya-9989/secure-cloud-microservices-platform/auth-service
+    newTag: main
+  - name: orders-service
+    newName: ghcr.io/arya-9989/secure-cloud-microservices-platform/orders-service
+    newTag: main

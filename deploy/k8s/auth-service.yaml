@@ -1,0 +1,196 @@
+# Required secrets (not committed):
+#   auth-service-secrets: DJANGO_SECRET_KEY, DATABASE_URL,
+#                         AUTH_BOOTSTRAP_ADMIN_EMAIL, AUTH_BOOTSTRAP_ADMIN_PASSWORD
+#   auth-signing-key:     jwt-private-key.pem  (RSA, PKCS#8 PEM)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-service
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  labels:
+    app.kubernetes.io/name: auth-service
+spec:
+  selector:
+    app.kubernetes.io/name: auth-service
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+---
+# Schema migrations run once per release, before the new pods roll out
+# (e.g. as an Argo CD PreSync hook or a pipeline step), never from every replica.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: auth-service-migrate
+  labels:
+    app.kubernetes.io/name: auth-service-migrate
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-service-migrate
+    spec:
+      serviceAccountName: auth-service
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: auth-service
+          command: ["sh", "-c"]
+          args:
+            - >-
+              python manage.py migrate --noinput &&
+              python manage.py createcachetable &&
+              python manage.py bootstrap_admin
+          envFrom:
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: auth-service-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 256Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  labels:
+    app.kubernetes.io/name: auth-service
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: auth-service
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: auth-service
+      containers:
+        - name: auth-service
+          image: auth-service
+          ports:
+            - { name: http, containerPort: 8000 }
+            - { name: metrics, containerPort: 9100 }
+          env:
+            - name: DJANGO_ALLOWED_HOSTS
+              value: auth-service,auth-service.secure-platform.svc,api.example.com
+            - name: JWT_PRIVATE_KEY_FILE
+              value: /keys/jwt-private-key.pem
+            - name: TRUSTED_PROXY_COUNT
+              value: "1"
+            - name: TRUST_PROXY_PROTO_HEADER
+              value: "true"
+            - name: API_DOCS_ENABLED
+              value: "false"
+          envFrom:
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: auth-service-secrets
+          volumeMounts:
+            - { name: signing-key, mountPath: /keys, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            requests: { cpu: 250m, memory: 192Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: signing-key
+          secret:
+            secretName: auth-signing-key
+            defaultMode: 0400
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: auth-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

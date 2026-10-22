@@ -1,0 +1,42 @@
+# Alert rules are evaluated by Prometheus (visible under /alerts). Routing them
+# to a pager needs an Alertmanager, which is listed as future work.
+groups:
+  - name: platform
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} is not being scraped"
+
+      - alert: HighServerErrorRate
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5..", uri!~"/healthz|/readyz|/actuator.*"}[5m]))
+            / sum by (job) (rate(http_server_requests_seconds_count{uri!~"/healthz|/readyz|/actuator.*"}[5m])) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }}: more than 5% of requests fail with 5xx"
+
+      - alert: SlowRequests
+        expr: |
+          histogram_quantile(0.95,
+            sum by (job, le) (rate(http_server_requests_seconds_bucket{uri!~"/healthz|/readyz|/actuator.*"}[5m]))) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }}: p95 latency above 1s"
+
+      - alert: RefreshTokenReuse
+        expr: increase(auth_refresh_token_reuse_detected_total[15m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Refresh token replay detected: a session was revoked (possible token theft)"
+
+      - alert: LoginBruteForce
+        expr: sum(rate(auth_login_attempts_total{outcome=~"invalid_credentials|throttled"}[5m])) > 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Sustained failed or throttled logins"

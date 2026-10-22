@@ -1,0 +1,201 @@
+# Local / CI environment for the whole platform.
+#
+#   python scripts/init_env.py           # once: generates .env with random secrets
+#   docker compose up --build --wait     # gateway on http://localhost:8080
+#
+# Only the gateway is published on all interfaces; Prometheus and Grafana bind
+# to 127.0.0.1; services and the database are reachable only on the internal
+# `backend` network.
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-auth-env: &auth-env
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?run python scripts/init_env.py first}
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,auth-service
+  DATABASE_URL: postgres://auth:${AUTH_DB_PASSWORD:?}@postgres:5432/auth
+  JWT_PRIVATE_KEY_FILE: /keys/jwt-private-key.pem
+  JWT_ISSUER: ${JWT_ISSUER:-urn:secure-platform:auth-service}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-secure-platform-api}
+  ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+  TRUSTED_PROXY_COUNT: "1" # the gateway
+  # Production default is 10/hour per IP; relaxed so tests and demos can be re-run locally.
+  REGISTER_RATE_PER_IP: ${REGISTER_RATE_PER_IP:-200/hour}
+  TRUST_PROXY_PROTO_HEADER: "true"
+  LOG_FORMAT: json
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run python scripts/init_env.py first}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?}
+      ORDERS_DB_PASSWORD: ${ORDERS_DB_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders && pg_isready -U postgres -d auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot job: signing key (if absent), schema migrations, cache table, first admin.
+  auth-init:
+    build: ./services/auth-service
+    image: secure-platform/auth-service:local
+    <<: *logging
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - sh
+      - -c
+      - >-
+        python manage.py ensure_signing_key /keys/jwt-private-key.pem &&
+        python manage.py migrate --noinput &&
+        python manage.py createcachetable &&
+        python manage.py bootstrap_admin
+    environment:
+      <<: *auth-env
+      AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:?}
+    volumes:
+      - jwt-keys:/keys
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  auth-service:
+    image: secure-platform/auth-service:local
+    <<: [*hardening, *logging]
+    environment:
+      <<: *auth-env
+    volumes:
+      - jwt-keys:/keys:ro
+    tmpfs:
+      - /tmp:size=32m,uid=10001,gid=10001
+    networks: [backend]
+    depends_on:
+      auth-init: { condition: service_completed_successfully }
+    deploy:
+      resources:
+        limits: { memory: 384m, cpus: "1.0" }
+
+  orders-service:
+    build: ./services/orders-service
+    image: secure-platform/orders-service:local
+    <<: [*hardening, *logging]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/orders
+      SPRING_DATASOURCE_USERNAME: orders
+      SPRING_DATASOURCE_PASSWORD: ${ORDERS_DB_PASSWORD:?}
+      PLATFORM_SECURITY_ISSUER: ${JWT_ISSUER:-urn:secure-platform:auth-service}
+      PLATFORM_SECURITY_AUDIENCE: ${JWT_AUDIENCE:-secure-platform-api}
+      PLATFORM_SECURITY_JWK_SET_URI: http://auth-service:8000/.well-known/jwks.json
+    tmpfs:
+      - /tmp:size=64m,uid=65532,gid=65532
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { memory: 640m, cpus: "1.5" }
+
+  gateway:
+    image: traefik:v3.7.16
+    <<: [*hardening, *logging]
+    user: "65532:65532"
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    tmpfs:
+      - /tmp:size=64m,uid=65532,gid=65532 # buffering middleware spills large bodies here
+    ports:
+      - "${GATEWAY_HTTP_PORT:-8080}:8080"
+      - "${GATEWAY_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./gateway/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./gateway/dynamic:/etc/traefik/dynamic:ro
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--configFile=/etc/traefik/traefik.yml"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      auth-service: { condition: service_healthy }
+      orders-service: { condition: service_healthy }
+
+  prometheus:
+    image: prom/prometheus:v3.9.1
+    <<: [*hardening, *logging]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    <<: [*hardening, *logging]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run python scripts/init_env.py first}
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/platform-overview.json
+      GF_LOG_MODE: console
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    tmpfs:
+      - /tmp:size=32m
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      prometheus: { condition: service_healthy }
+
+networks:
+  frontend: {}
+  backend:
+    internal: true # no route to the internet or the host
+
+volumes:
+  pgdata: {}
+  jwt-keys: {}
+  prometheus-data: {}
+  grafana-data: {}
