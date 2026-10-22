@@ -25,7 +25,7 @@ flowchart LR
     end
 
     subgraph backend ["backend network (internal, no internet)"]
-        auth["auth-service<br/>Python 3.12 · Django 5.2 · DRF<br/>issues RS256 JWTs + JWKS"]
+        auth["auth-service<br/>Python 3.12 · Django 6.1 · DRF<br/>issues RS256 JWTs + JWKS"]
         orders["orders-service<br/>Java 21 · Spring Boot 4.1<br/>OAuth2 resource server"]
         pg[("PostgreSQL 17<br/>db: auth · db: orders<br/>one role per service")]
     end
@@ -87,7 +87,7 @@ sequenceDiagram
 
 | Component | Stack | Responsibility | Ports (container) |
 |---|---|---|---|
-| **auth-service** | Python 3.12, Django 5.2 LTS, DRF 3.17, PyJWT, Argon2, gunicorn | Registration, login, RS256 access tokens, rotating refresh tokens, JWKS, user administration | 8000 API · 9100 metrics |
+| **auth-service** | Python 3.12, Django 6.1, DRF 3.18, PyJWT, Argon2, gunicorn | Registration, login, RS256 access tokens, rotating refresh tokens, JWKS, user administration | 8000 API · 9100 metrics |
 | **orders-service** | Java 21, Spring Boot 4.1, Spring Security 7, JPA/Hibernate 7, Flyway | Product catalog and orders; OAuth2 resource server enforcing scopes, roles and ownership | 8080 API · 8081 management |
 | **gateway** | Traefik 3.7 (file provider, no Docker socket) | Single entry point, TLS, routing, rate limiting, headers, access logs | 8080 HTTP · 8443 HTTPS · 8082 metrics |
 | **postgres** | PostgreSQL 17 | Separate database and least-privilege role per service | 5432 (internal only) |
@@ -116,7 +116,7 @@ Errors on both services, including 401 and 403, are [RFC 9457](https://www.rfc-e
 
 ## Tech stack
 
-- **Python:** 3.12, Django 5.2 LTS, Django REST framework, PyJWT + cryptography, argon2-cffi, psycopg 3, gunicorn, drf-spectacular. Tooling: uv (locked), ruff, mypy `--strict`, pytest, pip-audit.
+- **Python:** 3.12, Django 6.1, Django REST framework, PyJWT + cryptography, argon2-cffi, psycopg 3, gunicorn, drf-spectacular. Tooling: uv (locked), ruff, mypy `--strict`, pytest, pip-audit.
 - **Java:** 21, Spring Boot 4.1 (Spring Framework 7, Spring Security 7), Hibernate 7, Flyway, Micrometer, springdoc-openapi. Tooling: Maven wrapper, Spotless (google-java-format), `-Werror`, JUnit 5, Testcontainers.
 - **Platform:** Docker (multi-stage, non-root, distroless JVM runtime), Docker Compose, Traefik, PostgreSQL, Prometheus, Grafana, Kustomize.
 - **Delivery:** GitHub Actions (SHA-pinned), Jenkins, Trivy, GHCR, Dependabot, kubeconform.
