@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------------------------------------------------------------------------- build
-FROM eclipse-temurin:21.0.12.1_1-jdk-noble AS build
+FROM eclipse-temurin:24.0.2_12-jdk-noble AS build
 WORKDIR /src
 
 # Resolve dependencies in their own layer, cached until the POM changes.
