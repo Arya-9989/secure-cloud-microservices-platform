@@ -10,7 +10,6 @@
   <link rel="preload" href="/assets/fonts/inter-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
   {# Theme assets are served by the landing service through the gateway; without them the page falls back to stock Swagger UI. #}
   <script src="/assets/docs-theme.js"></script>
-  <link rel="stylesheet" href="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui.css' %}">
   <link rel="stylesheet" href="/assets/tokens.css">
   <link rel="stylesheet" href="/assets/docs.css">
 </head>
@@ -28,8 +27,8 @@
       </nav>
     </div>
   </header>
-  <main id="main" class="docs-main" tabindex="-1">
-    {# Server-rendered so it paints before the Swagger bundle runs; docs.css hides Swagger's own info block. #}
+  <div id="main" class="docs-main" tabindex="-1">
+    {# Server-rendered so it paints before Swagger UI loads; docs.css hides Swagger's own info block. #}
     <section class="docs-hero" aria-labelledby="docs-title">
       <p class="docs-eyebrow"><span class="docs-dot" aria-hidden="true"></span>auth-service</p>
       <h1 id="docs-title" class="docs-title">Auth API reference.</h1>
@@ -40,12 +39,10 @@
         <li>Rate limited per IP and per account</li>
       </ul>
       <a class="docs-pill" href="{% url 'openapi-schema' %}">OpenAPI document</a>
-    </section>
-    <div id="swagger-ui" data-openapi-url="{% url 'openapi-schema' %}">
       <noscript><p class="docs-noscript">The interactive reference needs JavaScript. The OpenAPI document above describes every operation.</p></noscript>
-    </div>
-  </main>
-  <script src="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui-bundle.js' %}" defer></script>
+    </section>
+    <div id="swagger-ui" data-openapi-url="{% url 'openapi-schema' %}" data-bundle="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui-bundle.js' %}" data-stylesheet="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui.css' %}"></div>
+  </div>
   <script src="{% static 'accounts/api-docs.js' %}" defer></script>
 </body>
 </html>

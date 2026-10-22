@@ -67,9 +67,10 @@ class TestGateway:
             csp = page.headers["Content-Security-Policy"]
             assert page.status_code == 200
             assert 'href="/assets/docs.css"' in page.text
-            # Title and lead are server-rendered inside the <main> landmark.
-            pattern = r"<main[ >].*<h1[^>]*>\w+ API reference[.]</h1>.*</main>"
+            # Title and lead are server-rendered; Swagger UI adds the <main> landmark.
+            pattern = r'<section class="docs-hero"[^>]*>.*<h1[^>]*>\w+ API reference[.]</h1>'
             assert re.search(pattern, page.text, re.S)
+            assert "<main" not in page.text
             assert "script-src 'self'" in csp
             assert "unsafe" not in csp
 

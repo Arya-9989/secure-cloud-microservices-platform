@@ -827,8 +827,30 @@ body {
 }
 
 .docs-noscript {
-  width: min(100% - 32px, 1048px);
-  margin: 0 auto 64px;
+  max-width: 760px;
+  margin: 24px 0 0;
   color: var(--text-2);
   font-size: 17px;
+}
+
+/* Loading: until Swagger UI renders, rows shaped like its operations hold the
+ * space. Static on purpose, so there is nothing to animate or to pause. */
+#swagger-ui:empty::before {
+  content: "";
+  display: block;
+  width: min(100% - 32px, 1048px);
+  height: 404px;
+  margin: 24px auto 64px;
+  border-radius: 14px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--surface-2) 0 56px,
+    transparent 56px 68px
+  );
+}
+
+/* One server only (the gateway this page is served from): a picker with a single
+ * option is noise, and it would sit outside every landmark. */
+#swagger-ui .swagger-ui .schemes-server-container:has(select option:only-child) {
+  display: none;
 }

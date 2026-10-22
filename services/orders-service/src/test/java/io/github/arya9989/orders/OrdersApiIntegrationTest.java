@@ -326,7 +326,8 @@ class OrdersApiIntegrationTest {
       assertThat(page.getBody())
           .contains("href=\"/assets/docs.css\"")
           .containsPattern(
-              "(?s)<main[ >].*<h1[^>]*>Orders API reference[.]</h1>.*id=\"swagger-ui\".*</main>")
+              "(?s)<section class=\"docs-hero\"[^>]*>.*<h1[^>]*>Orders API reference[.]</h1>")
+          .doesNotContain("<main") // Swagger UI renders the page's main landmark itself
           .contains("src=\"/docs/orders/api-docs.js\"")
           .doesNotContain("src=\"./swagger-ui-standalone-preset.js\"")
           .doesNotContain("src=\"./swagger-initializer.js\"")

@@ -10,7 +10,6 @@
   <link rel="preload" href="/assets/fonts/inter-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
   <!-- Theme assets are served by the landing service through the gateway; without them the page falls back to stock Swagger UI. -->
   <script src="/assets/docs-theme.js"></script>
-  <link rel="stylesheet" href="./swagger-ui.css">
   <link rel="stylesheet" href="/assets/tokens.css">
   <link rel="stylesheet" href="/assets/docs.css">
 </head>
@@ -28,8 +27,8 @@
       </nav>
     </div>
   </header>
-  <main id="main" class="docs-main" tabindex="-1">
-    <!-- Served as HTML so it paints before the Swagger bundle runs; docs.css hides Swagger's own info block. -->
+  <div id="main" class="docs-main" tabindex="-1">
+    <!-- Served as HTML so it paints before Swagger UI loads; docs.css hides Swagger's own info block. -->
     <section class="docs-hero" aria-labelledby="docs-title">
       <p class="docs-eyebrow"><span class="docs-dot" aria-hidden="true"></span>orders-service</p>
       <h1 id="docs-title" class="docs-title">Orders API reference.</h1>
@@ -40,12 +39,10 @@
         <li>Prices set by the server</li>
       </ul>
       <a class="docs-pill" href="/docs/orders/openapi.json">OpenAPI document</a>
-    </section>
-    <div id="swagger-ui" data-openapi-url="/docs/orders/openapi.json">
       <noscript><p class="docs-noscript">The interactive reference needs JavaScript. The OpenAPI document above describes every operation.</p></noscript>
-    </div>
-  </main>
-  <script src="./swagger-ui-bundle.js" defer></script>
+    </section>
+    <div id="swagger-ui" data-openapi-url="/docs/orders/openapi.json" data-bundle="./swagger-ui-bundle.js" data-stylesheet="./swagger-ui.css"></div>
+  </div>
   <!-- Our own bootstrap (static/docs/orders/api-docs.js), not springdoc's swagger-initializer.js:
        no standalone preset to download and no wait for window.onload. -->
   <script src="/docs/orders/api-docs.js" defer></script>

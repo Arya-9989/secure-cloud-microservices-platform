@@ -124,16 +124,18 @@ def test_api_docs_page_is_themed_and_runs_without_inline_script(api: APIClient) 
 
 
 def test_api_docs_page_renders_its_title_without_javascript(api: APIClient) -> None:
-    # The heading and lead are in the HTML, so they paint before the 1.5 MB Swagger
-    # bundle runs (they are the page's LCP element), and the whole reference sits in a
-    # <main> landmark (axe: region).
+    # The heading and lead are in the HTML, so they paint before Swagger UI loads (they
+    # are the page's LCP element), in a labelled region. Swagger UI renders the page's
+    # <main> landmark itself, so the server HTML must not add a second one.
     html = api.get("/docs/auth/").content.decode()
 
-    main = re.search(r"<main\b[^>]*>(.*)</main>", html, re.S)
-    assert main is not None, "the reference must live in a <main> landmark"
-    assert re.search(r"<h1\b[^>]*>Auth API reference\.</h1>", main.group(1))
-    assert 'id="swagger-ui"' in main.group(1)
-    assert 'href="/docs/auth/openapi.json"' in main.group(1)
+    hero = re.search(
+        r'<section class="docs-hero" aria-labelledby="docs-title">(.*?)</section>', html, re.S
+    )
+    assert hero is not None, "the title must be server-rendered in a labelled region"
+    assert re.search(r'<h1 id="docs-title"[^>]*>Auth API reference[.]</h1>', hero.group(1))
+    assert 'href="/docs/auth/openapi.json"' in hero.group(1)
+    assert "<main" not in html
 
 
 def test_openapi_operations_describe_themselves(api: APIClient) -> None:
