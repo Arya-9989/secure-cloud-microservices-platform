@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/assets/tokens.css">
   <link rel="stylesheet" href="/assets/landing.css">
   <script type="module" src="/assets/landing.js"></script>
+  <script type="module" src="/assets/motion.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -70,7 +71,7 @@
             <span class="probe-detail" data-detail>Traefik routes this page from the landing service</span>
             <span class="probe-status" data-status>Not checked</span>
             <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
-            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><g class="spark-slide" data-spark-slide><path class="spark-fail" data-spark-fail d=""/><g class="spark-scale" data-spark-scale><path class="spark-line" data-spark d=""/></g></g></svg>
           </li>
           <li class="probe" data-probe="auth" data-state="idle">
             <span class="probe-name"><span class="dot" aria-hidden="true"></span>auth-service</span>
@@ -78,7 +79,7 @@
             <span class="probe-detail" data-detail>Public signing keys for RS256 access tokens</span>
             <span class="probe-status" data-status>Not checked</span>
             <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
-            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><g class="spark-slide" data-spark-slide><path class="spark-fail" data-spark-fail d=""/><g class="spark-scale" data-spark-scale><path class="spark-line" data-spark d=""/></g></g></svg>
           </li>
           <li class="probe" data-probe="orders" data-state="idle">
             <span class="probe-name"><span class="dot" aria-hidden="true"></span>orders-service</span>
@@ -86,7 +87,7 @@
             <span class="probe-detail" data-detail>RFC 9728 metadata: the scopes this API accepts</span>
             <span class="probe-status" data-status>Not checked</span>
             <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
-            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><g class="spark-slide" data-spark-slide><path class="spark-fail" data-spark-fail d=""/><g class="spark-scale" data-spark-scale><path class="spark-line" data-spark d=""/></g></g></svg>
           </li>
           <li class="probe" data-probe="policy" data-state="idle" data-manual>
             <span class="probe-name"><span class="dot" aria-hidden="true"></span>Access policy</span>
@@ -94,7 +95,7 @@
             <span class="probe-detail" data-detail>Sent without a token, it should be refused with 401</span>
             <span class="probe-status"><span data-status>Not checked</span><button type="button" class="try" data-try hidden>Send request</button></span>
             <span class="probe-rtt"><span data-rtt>&#8211;</span>&nbsp;<span class="unit">ms</span></span>
-            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><polyline class="spark-line" data-spark points=""/></svg>
+            <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="spark-base" d="M0 27.5H120"/><g class="spark-slide" data-spark-slide><path class="spark-fail" data-spark-fail d=""/><g class="spark-scale" data-spark-scale><path class="spark-line" data-spark d=""/></g></g></svg>
           </li>
         </ul>
         <p class="console-foot">Round-trip times are measured in this browser. Health and metrics ports are never routed through the gateway, so the probes use the same public endpoints any client sees.</p>
@@ -111,10 +112,12 @@
         <p class="section-lead reveal">Traefik is the only published entry point. The services and PostgreSQL sit on an internal Docker network with no route to the internet, and metrics and health ports are never routed through the gateway.</p>
       </div>
 
-      <figure class="diagram reveal">
+      <div class="flow">
+        <div class="flow-stage">
+      <figure class="diagram">
         <svg class="diagram-wide" viewBox="0 0 1080 640" role="img" aria-labelledby="dw-title dw-desc" focusable="false">
           <title id="dw-title">Platform architecture</title>
-          <desc id="dw-desc">A client reaches the Traefik gateway on port 8443 with TLS or 8080. The gateway applies TLS 1.2 and HSTS, per-IP rate limits, a 1 MiB body limit, security headers and JSON access logs, then routes to three services on an internal backend network with no internet access: landing, auth-service and orders-service. orders-service fetches the JSON Web Key Set from auth-service, caches it and refetches on an unknown key ID. Both API services use PostgreSQL 17 with one database and role each. Prometheus, bound to localhost, scrapes the gateway and the services on metrics ports that are never routed, and Grafana queries Prometheus.</desc>
+          <desc id="dw-desc">A client reaches the Traefik gateway on port 8443 with TLS or 8080. The gateway applies TLS 1.2 and HSTS, per-IP rate limits, a 1 MiB body limit, security headers and JSON access logs, then routes to three services on an internal backend network with no internet access: landing, auth-service and orders-service. orders-service fetches the JSON Web Key Set from auth-service, caches it and refetches on an unknown key ID. Both API services use PostgreSQL 17 with one database and role each. Prometheus, bound to localhost, scrapes the gateway and the services on metrics ports that are never routed, and Grafana queries Prometheus. Numbered markers follow one request: 1, the client logs in through the gateway at auth-service; 2, auth-service returns an RS256 access token; 3, the client calls orders-service with the token, and orders-service fetches the JWKS from auth-service when no keys are cached; 4, orders-service verifies the token and answers; 5, the same request without a token is refused with 401.</desc>
           <defs>
             <marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head"/></marker>
             <marker id="ahw-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head-accent"/></marker>
@@ -185,11 +188,54 @@
           <path class="d-edge d-edge-dashed" d="M330 544V444" marker-end="url(#ahw)"/>
           <path class="d-edge d-edge-dashed" d="M590 544V450" marker-end="url(#ahw)"/>
           <text class="d-mono" x="604" y="493">metrics ports · never routed</text>
+          <!-- Request flow (landing.css, "flow"): lit step by step as the section scrolls. -->
+          <g class="fl" aria-hidden="true">
+            <g class="fl-step k-20-23">
+              <path class="fl-wire fl-keep k-02-07" d="M166 256H236" pathLength="1"/>
+              <rect class="fl-ring k-05-09" x="240" y="80" width="220" height="360" rx="18"/>
+              <rect class="fl-ring k-06-10" x="258" y="202" width="184" height="32" rx="8"/>
+              <path class="fl-wire fl-keep k-09-14" d="M460 236H524" pathLength="1"/>
+              <rect class="fl-ring k-13-17" x="528" y="186" width="262" height="100" rx="14"/>
+            </g>
+            <g class="fl-step k-40-43">
+              <rect class="fl-ring k-21-24" x="528" y="186" width="262" height="100" rx="14"/>
+              <path class="fl-wire k-25-30" d="M524 236H460" pathLength="1"/>
+              <path class="fl-wire k-30-35" d="M236 256H166" pathLength="1"/>
+            </g>
+            <g class="fl-step k-60-63">
+              <path class="fl-wire k-41-45" d="M166 256H236" pathLength="1"/>
+              <path class="fl-wire fl-keep k-45-49" d="M460 396H524" pathLength="1"/>
+              <rect class="fl-ring k-48-51" x="528" y="346" width="262" height="100" rx="14"/>
+              <path class="fl-wire fl-keep k-51-56" d="M600 346V290" pathLength="1"/>
+              <rect class="fl-ring k-55-58" x="528" y="186" width="262" height="100" rx="14"/>
+            </g>
+            <g class="fl-step k-80-83">
+              <rect class="fl-ring fl-ok k-61-64" x="528" y="346" width="262" height="100" rx="14"/>
+              <path class="fl-wire k-66-70" d="M524 396H460" pathLength="1"/>
+              <path class="fl-wire k-70-74" d="M236 256H166" pathLength="1"/>
+            </g>
+            <g class="fl-step fl-last">
+              <path class="fl-wire fl-deny k-83-87" d="M166 256H236" pathLength="1"/>
+              <path class="fl-wire fl-deny k-87-91" d="M460 396H524" pathLength="1"/>
+              <rect class="fl-ring fl-deny k-91-94" x="528" y="346" width="262" height="100" rx="14"/>
+            </g>
+            <g class="fl-fade k-80-83">
+              <g class="fl-pop k-33-37">
+                <rect class="fl-token" x="16" y="312" width="150" height="34" rx="10"/>
+                <text class="fl-token-text" x="91" y="333" text-anchor="middle">RS256 JWT · 15 min</text>
+              </g>
+            </g>
+            <g class="fl-pop k-02-05"><circle class="fl-badge" cx="166" cy="216" r="11"/><text class="fl-badge-text" x="166" y="220" text-anchor="middle">1</text></g>
+            <g class="fl-pop k-22-25"><circle class="fl-badge" cx="790" cy="186" r="11"/><text class="fl-badge-text" x="790" y="190" text-anchor="middle">2</text></g>
+            <g class="fl-pop k-51-54"><circle class="fl-badge" cx="600" cy="318" r="11"/><text class="fl-badge-text" x="600" y="322" text-anchor="middle">3</text></g>
+            <g class="fl-pop k-62-65"><circle class="fl-badge" cx="790" cy="346" r="11"/><text class="fl-badge-text" x="790" y="350" text-anchor="middle">4</text></g>
+            <g class="fl-pop k-93-96"><rect class="fl-badge fl-badge-deny" x="472" y="385" width="40" height="22" rx="11"/><text class="fl-badge-text" x="492" y="400" text-anchor="middle">401</text></g>
+          </g>
         </svg>
 
         <svg class="diagram-tall" viewBox="0 0 360 900" role="img" aria-labelledby="dt-title dt-desc" focusable="false">
           <title id="dt-title">Platform architecture</title>
-          <desc id="dt-desc">A client reaches the Traefik gateway, the only published entry point, which applies TLS and HSTS, per-IP rate limits, a 1 MiB body limit, security headers and JSON access logs. It routes to landing, auth-service and orders-service on an internal backend network. orders-service fetches and caches the JWKS from auth-service. Both API services use PostgreSQL 17. Prometheus on localhost scrapes metrics ports that are never routed, and Grafana reads from Prometheus.</desc>
+          <desc id="dt-desc">A client reaches the Traefik gateway, the only published entry point, which applies TLS and HSTS, per-IP rate limits, a 1 MiB body limit, security headers and JSON access logs. It routes to landing, auth-service and orders-service on an internal backend network. orders-service fetches and caches the JWKS from auth-service. Both API services use PostgreSQL 17. Prometheus on localhost scrapes metrics ports that are never routed, and Grafana reads from Prometheus. Numbered markers follow one request: log in at auth-service, RS256 token issued, JWKS fetched by orders-service, token verified at orders-service, and 401 for a request without a token.</desc>
           <defs>
             <marker id="aht" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head"/></marker>
             <marker id="aht-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" class="d-head-accent"/></marker>
@@ -254,8 +300,84 @@
           <text class="d-sub" x="208" y="848">Provisioned</text>
           <text class="d-sub" x="208" y="866">dashboard</text>
           <path class="d-edge" d="M192 838H176" marker-end="url(#aht)"/>
+          <g class="fl" aria-hidden="true">
+            <g class="fl-step k-20-23">
+              <path class="fl-wire fl-keep k-02-07" d="M180 64V96" pathLength="1"/>
+              <rect class="fl-ring k-05-09" x="16" y="100" width="328" height="180" rx="18"/>
+              <rect class="fl-ring k-06-10" x="184" y="166" width="144" height="30" rx="8"/>
+              <path class="fl-wire fl-keep k-09-14" d="M40 280V466H56" pathLength="1"/>
+              <rect class="fl-ring k-13-17" x="60" y="426" width="276" height="80" rx="14"/>
+            </g>
+            <g class="fl-step k-40-43">
+              <rect class="fl-ring k-21-24" x="60" y="426" width="276" height="80" rx="14"/>
+              <path class="fl-wire k-25-30" d="M56 466H40V280" pathLength="1"/>
+              <path class="fl-wire k-30-35" d="M180 96V64" pathLength="1"/>
+            </g>
+            <g class="fl-step k-60-63">
+              <path class="fl-wire k-41-45" d="M180 64V96" pathLength="1"/>
+              <path class="fl-wire fl-keep k-45-49" d="M40 280V606H56" pathLength="1"/>
+              <rect class="fl-ring k-48-51" x="60" y="566" width="276" height="80" rx="14"/>
+              <path class="fl-wire fl-keep k-51-56" d="M200 566V510" pathLength="1"/>
+              <rect class="fl-ring k-55-58" x="60" y="426" width="276" height="80" rx="14"/>
+            </g>
+            <g class="fl-step k-80-83">
+              <rect class="fl-ring fl-ok k-61-64" x="60" y="566" width="276" height="80" rx="14"/>
+              <path class="fl-wire k-66-70" d="M56 606H40V280" pathLength="1"/>
+              <path class="fl-wire k-70-74" d="M180 96V64" pathLength="1"/>
+            </g>
+            <g class="fl-step fl-last">
+              <path class="fl-wire fl-deny k-83-87" d="M180 64V96" pathLength="1"/>
+              <path class="fl-wire fl-deny k-87-91" d="M40 280V606H56" pathLength="1"/>
+              <rect class="fl-ring fl-deny k-91-94" x="60" y="566" width="276" height="80" rx="14"/>
+            </g>
+            <g class="fl-pop k-02-05"><circle class="fl-badge" cx="320" cy="36" r="11"/><text class="fl-badge-text" x="320" y="40" text-anchor="middle">1</text></g>
+            <g class="fl-pop k-22-25"><circle class="fl-badge" cx="316" cy="448" r="11"/><text class="fl-badge-text" x="316" y="452" text-anchor="middle">2</text></g>
+            <g class="fl-pop k-51-54"><circle class="fl-badge" cx="200" cy="538" r="10"/><text class="fl-badge-text" x="200" y="542" text-anchor="middle">3</text></g>
+            <g class="fl-pop k-62-65"><circle class="fl-badge" cx="316" cy="588" r="11"/><text class="fl-badge-text" x="316" y="592" text-anchor="middle">4</text></g>
+            <g class="fl-pop k-93-96"><rect class="fl-badge fl-badge-deny" x="20" y="529" width="40" height="22" rx="11"/><text class="fl-badge-text" x="40" y="544" text-anchor="middle">401</text></g>
+          </g>
         </svg>
       </figure>
+          <div class="flow-copy">
+            <div class="flow-head">
+              <h3 id="flow-h" class="flow-title">Follow one request.</h3>
+              <span class="flow-rail" aria-hidden="true"><span class="k-00-20"></span><span class="k-20-40"></span><span class="k-40-60"></span><span class="k-60-80"></span><span class="k-80-100"></span></span>
+            </div>
+            <ol class="flow-steps" role="list" aria-labelledby="flow-h">
+              <li class="flow-step fs-first k-00-20">
+                <span class="flow-n" aria-hidden="true">1</span>
+                <h4 class="flow-step-title">Log in.</h4>
+                <p class="flow-call"><code>POST /api/v1/auth/token/</code></p>
+                <p class="flow-text">Email and password pass through the gateway, which allows auth routes 10 requests a second per IP, to auth-service, which throttles again per IP and per account.</p>
+              </li>
+              <li class="flow-step k-20-40">
+                <span class="flow-n" aria-hidden="true">2</span>
+                <h4 class="flow-step-title">RS256 token issued.</h4>
+                <p class="flow-call"><code>200 · access_token · refresh_token</code></p>
+                <p class="flow-text">auth-service signs a 15-minute access token with its private RSA key. The token&#8217;s <code>kid</code> header names the key by its RFC&nbsp;7638 thumbprint.</p>
+              </li>
+              <li class="flow-step k-40-60">
+                <span class="flow-n" aria-hidden="true">3</span>
+                <h4 class="flow-step-title">JWKS fetched.</h4>
+                <p class="flow-call"><code>GET /.well-known/jwks.json</code></p>
+                <p class="flow-text">The client calls orders-service with the bearer token. With no keys cached yet, orders-service fetches the key set from auth-service on the internal network and keeps it for 5&nbsp;minutes. An unknown <code>kid</code> forces a refetch, at most two every 10&nbsp;seconds.</p>
+              </li>
+              <li class="flow-step k-60-80">
+                <span class="flow-n" aria-hidden="true">4</span>
+                <h4 class="flow-step-title">Verified at orders.</h4>
+                <p class="flow-call"><code>GET /api/v1/orders · 200</code></p>
+                <p class="flow-text">orders-service checks the signature offline, RS256 only, then <code>iss</code>, <code>aud</code>, <code>exp</code> and <code>sub</code> with 30&nbsp;seconds of skew, and requires <code>orders:read</code>. With the keys cached, auth-service is not on this path.</p>
+              </li>
+              <li class="flow-step fs-last fs-deny k-80-100">
+                <span class="flow-n" aria-hidden="true">5</span>
+                <h4 class="flow-step-title">No token, 401.</h4>
+                <p class="flow-call"><code>GET /api/v1/orders · 401</code></p>
+                <p class="flow-text">Without a token the gateway still forwards the request, and orders-service refuses it: <code>401</code> with a <code>WWW-Authenticate: Bearer</code> challenge and a problem document. The live console&#8217;s last row sends exactly this request.</p>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </div>
 
       <div class="wrap">
         <ul class="tiles tiles-3" role="list">
@@ -481,7 +603,7 @@
 
         <ol class="pipeline" role="list">
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">1</span><h3>Lint and types</h3><p>ruff, <code>mypy --strict</code>, Spotless, <code>-Werror</code></p></li>
-          <li class="stage reveal"><span class="stage-n" aria-hidden="true">2</span><h3>Unit and integration</h3><p>84 pytest tests on PostgreSQL. 59 JUnit tests with Testcontainers. 11 Node tests for the live console.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">2</span><h3>Unit and integration</h3><p>84 pytest tests on PostgreSQL. 59 JUnit tests with Testcontainers. 24 Node tests for the live console and the page itself.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">3</span><h3>Audit and validate</h3><p><code>pip-audit</code> on locked dependencies. <code>kubeconform -strict</code> on the manifests. <code>promtool</code> tests for every alert rule.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">4</span><h3>Scan</h3><p>Trivy fails the build on any fixable HIGH or CRITICAL vulnerability in every image.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">5</span><h3>End to end</h3><p>31 black-box tests against the full stack, through the gateway.</p></li>

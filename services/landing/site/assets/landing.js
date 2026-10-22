@@ -2,9 +2,12 @@
 // Everything here is progressive enhancement: with JavaScript off the page reads
 // completely. DOM writes use textContent and attributes only, so the page runs
 // under `require-trusted-types-for 'script'`.
-import { Poller, TIMEOUT_MS, describe } from "./live.js";
+import { Poller, SPARK_SLOTS, TIMEOUT_MS, describe, sparkGeometry } from "./live.js";
 
-const HISTORY = 24;
+// One sample more than the sparkline shows, so the slide never pops a point.
+const HISTORY = SPARK_SLOTS + 1;
+const SPARK_MS = 600;
+const EASE = "cubic-bezier(0.4, 0, 0.6, 1)";
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 // ---------------------------------------------------------------- live probes
@@ -99,15 +102,31 @@ function setupProbes() {
   const state = new Map(rows.map((row) => [row, { history: [], last: null, ping: 1 }]));
   let firstRound = true;
 
-  const drawSpark = (row, history) => {
+  // The sparkline slides left by one step as each sample arrives and eases to a
+  // new scale, instead of being redrawn in place. Only attributes and transforms
+  // are written (no layout reads), and with reduced motion it simply updates.
+  const drawSpark = (row, s) => {
     const line = row.querySelector("[data-spark]");
-    if (!line || history.length < 2) return;
-    const max = Math.max(20, ...history) * 1.15;
-    const step = 120 / (history.length - 1);
-    const points = history.map(
-      (ms, i) => `${(i * step).toFixed(1)},${(26 - (ms / max) * 24).toFixed(1)}`,
+    const fails = row.querySelector("[data-spark-fail]");
+    const slide = row.querySelector("[data-spark-slide]");
+    const scale = row.querySelector("[data-spark-scale]");
+    if (!line || !fails || !slide || !scale) return;
+    const geo = sparkGeometry(s.history);
+    const to = `translate(0px, 26px) scale(1, ${(24 / geo.max).toFixed(5)})`;
+    const from = s.scale || to;
+    line.setAttribute("d", geo.line);
+    fails.setAttribute("d", geo.fails);
+    scale.style.transform = to;
+    s.scale = to;
+    if (reduceMotion.matches || typeof slide.animate !== "function" || s.history.length < 2) {
+      return;
+    }
+    const timing = { duration: SPARK_MS, easing: EASE };
+    slide.animate(
+      [{ transform: `translateX(${geo.step.toFixed(3)}px)` }, { transform: "translateX(0px)" }],
+      timing,
     );
-    line.setAttribute("points", points.join(" "));
+    if (from !== to) scale.animate([{ transform: from }, { transform: to }], timing);
   };
 
   const render = (row, { ms, outcome }) => {
@@ -123,10 +142,11 @@ function setupProbes() {
     row.querySelector("[data-rtt]").textContent = view.up
       ? String(Math.max(1, Math.round(ms)))
       : "–";
+    // A failure is recorded too: it breaks the line and leaves a red tick.
+    s.history.push(view.up ? ms : null);
+    if (s.history.length > HISTORY) s.history.shift();
+    drawSpark(row, s);
     if (view.up) {
-      s.history.push(ms);
-      if (s.history.length > HISTORY) s.history.shift();
-      drawSpark(row, s.history);
       if (!reduceMotion.matches) {
         s.ping = s.ping === 1 ? 2 : 1;
         row.dataset.ping = String(s.ping);
@@ -191,9 +211,35 @@ function setupProbes() {
 // ---------------------------------------------------------------- local nav
 
 function setupNav() {
+  const nav = document.querySelector(".localnav-links");
   const links = [...document.querySelectorAll(".localnav-links a[href^='#']")];
-  if (!links.length || !("IntersectionObserver" in window)) return;
+  if (!nav || !links.length || !("IntersectionObserver" in window)) return;
   const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+
+  // One underline that slides to the active link (a transform only), instead of
+  // one per link blinking on and off. Created here, so without JavaScript there
+  // is nothing to slide and nothing is missing.
+  const ink = document.createElement("span");
+  ink.className = "nav-ink";
+  ink.setAttribute("aria-hidden", "true");
+  nav.append(ink);
+  nav.classList.add("has-ink");
+  let active = null;
+  let frame = 0;
+  const placeInk = () => {
+    frame = 0;
+    if (!active || !active.offsetWidth) {
+      ink.classList.remove("is-on");
+      return;
+    }
+    ink.style.transform = `translateX(${active.offsetLeft}px) scaleX(${active.offsetWidth})`;
+    ink.classList.add("is-on");
+  };
+  const queueInk = () => {
+    if (!frame) frame = requestAnimationFrame(placeInk);
+  };
+  if ("ResizeObserver" in window) new ResizeObserver(queueInk).observe(nav);
+
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -201,7 +247,9 @@ function setupNav() {
         for (const a of links) a.removeAttribute("aria-current");
         // Sections without a nav link (the hero, the closing call to action)
         // clear the highlight instead of leaving the last one lit.
-        byId.get(entry.target.id)?.setAttribute("aria-current", "true");
+        active = byId.get(entry.target.id) || null;
+        active?.setAttribute("aria-current", "true");
+        queueInk();
       }
     },
     { rootMargin: "-45% 0px -50% 0px" },

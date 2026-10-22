@@ -60,6 +60,57 @@ export function describe(outcome, probe) {
   };
 }
 
+/** Width of a sparkline in SVG user units (its viewBox is 0 0 120 28). */
+export const SPARK_WIDTH = 120;
+/** Samples visible at once; the newest always sits on the right edge. */
+export const SPARK_SLOTS = 24;
+/** Lowest top of the scale, so a fast, flat series does not look jumpy. */
+export const SPARK_FLOOR_MS = 20;
+
+/**
+ * Geometry of one sparkline. `history` holds round-trip times in ms, or null
+ * for a probe that failed. Uses the last SPARK_SLOTS + 1 samples: the oldest
+ * sits one step left of the visible area, so when the line slides left by
+ * `step` to make room for a new sample, nothing pops out at the left edge.
+ *
+ * The line is drawn in raw milliseconds (y = -ms), so a change of scale is one
+ * transform (scaleY = 24 / max) that can be animated instead of every point
+ * jumping. A failure breaks the line and becomes a full-height tick, so an
+ * outage stays visible in the history after the service recovers.
+ *
+ * @param {Array<number | null>} history oldest first
+ * @returns {{line: string, fails: string, max: number, step: number}}
+ */
+export function sparkGeometry(history) {
+  const step = SPARK_WIDTH / (SPARK_SLOTS - 1);
+  const samples = history.slice(-(SPARK_SLOTS + 1));
+  const n = samples.length;
+  const x = (i) => Number((SPARK_WIDTH - (n - 1 - i) * step).toFixed(2));
+  const valid = samples.filter((ms) => ms !== null);
+  const max = Math.max(SPARK_FLOOR_MS, ...valid) * 1.15;
+
+  const line = [];
+  const fails = [];
+  let open = false;
+  samples.forEach((ms, i) => {
+    if (ms === null) {
+      fails.push(`M${x(i)} 3V25`);
+      open = false;
+      return;
+    }
+    const y = -Number(ms.toFixed(2));
+    if (open) {
+      line.push(`L${x(i)} ${y}`);
+      return;
+    }
+    // A run of one sample still shows, as a dot: a tiny segment with round caps.
+    const next = samples[i + 1];
+    line.push(next === undefined || next === null ? `M${x(i)} ${y}h0.01` : `M${x(i)} ${y}`);
+    open = true;
+  });
+  return { line: line.join(""), fails: fails.join(""), max, step };
+}
+
 /** Human cadence line for the console header. */
 export function cadenceLabel({ paused, hidden, delay }) {
   if (paused) return "Paused. Nothing is sent until you resume.";

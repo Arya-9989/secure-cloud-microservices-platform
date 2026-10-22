@@ -18,6 +18,10 @@ The stack opens on a landing page at the gateway root. It explains the security 
   <img alt="Landing page at the gateway root: the headline 'Every request, verified.' above a live console that probes the gateway, the auth-service JWKS, the orders-service metadata and the access policy." src="docs/screenshots/landing-light.png">
 </picture>
 
+Scrolling the architecture section walks one request through the diagram: log in, RS256 token issued, JWKS fetched, token verified at orders-service, and `401` for the same request without a token. The motion is CSS scroll-driven (with a small IntersectionObserver fallback), runs under the page's strict CSP, and is skipped under reduced motion, where the diagram and all five steps are shown at once. The console's sparklines slide as samples arrive, and a failed probe leaves a red tick in the history.
+
+![The request-flow story on the landing page: the architecture diagram stays pinned while five steps light up in turn, ending with a 401 for a request without a token.](docs/images/request-flow.gif)
+
 | Auth API reference | Orders API reference |
 |---|---|
 | ![Auth service Swagger UI in the platform theme](docs/screenshots/auth-api-docs.png) | ![Orders service Swagger UI in the platform theme](docs/screenshots/orders-api-docs.png) |
@@ -280,7 +284,7 @@ A [`Jenkinsfile`](Jenkinsfile) runs the same checks with Docker agents for teams
 | auth-service | 84 unit/API tests, 96 % line coverage on PostgreSQL | `cd services/auth-service && uv run pytest` (set `DATABASE_URL` for PostgreSQL) | RFC 7638 test vector, alg-none / HS256 confusion / foreign-key forgery, rotation + replay, replay and logout racing a rotation (real threads, PostgreSQL only), absolute session expiry, throttling, admin authorization, log schema, migrations in sync |
 | orders-service | 59 JUnit tests | `cd services/orders-service && ./mvnw verify` | Full authorization matrix, real RS256 tokens against a JWKS stub (expired, no `exp`, wrong iss/aud, missing sub, HS256, unsigned, foreign key), **key rotation without restart**, forged `kid`s cannot flood the JWKS, cached keys survive a JWKS outage, a hanging JWKS fails fast, `503` when keys are unavailable, ownership 404s, state machine, Flyway on real PostgreSQL |
 | end-to-end | 31 black-box tests | `cd tests/e2e && uv run pytest` (stack running) | Cross-service token verification, forged tokens, per-account throttling, session revocation, correlation IDs, HTTPS/HSTS, TLS 1.2 AEAD-only ciphers, docs routing, landing page and docs under strict CSP, Prometheus targets, every dashboard query returns data, Grafana provisioning, edge 429s |
-| landing | 11 unit tests | `cd services/landing && node --test` | Live-console wording for each failure, backoff, no overlapping rounds, pause and hidden-tab behaviour |
+| landing | 24 unit tests | `cd services/landing && node --test` | Live-console wording for each failure, backoff, no overlapping rounds, pause and hidden-tab behaviour, sparkline geometry (outages stay visible), no inline script or style, motion only animates opacity, transforms and stroke and is skipped under reduced motion, request-flow copy present without JavaScript |
 | alert rules | 6 `promtool` test groups | see [`alerts.test.yml`](observability/prometheus/alerts.test.yml) | Every alert fires on the condition it describes |
 
 ## Deploying to Kubernetes
