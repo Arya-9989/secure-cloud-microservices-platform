@@ -156,35 +156,56 @@ def issue_token_pair(user: User) -> TokenPair:
     return _pair(user, refresh, raw, now)
 
 
+def _lock_family(family_id: uuid.UUID) -> None:
+    """Serialise every rotation and revocation of one session family.
+
+    Row locks on individual tokens are not enough: under READ COMMITTED a revoking
+    UPDATE that waits for a concurrent rotation re-checks the locked row but never sees
+    the successor token that rotation inserts, which would survive a replay. Every
+    path that changes a family therefore first locks the family's oldest token, which
+    always exists. (SQLite ignores FOR UPDATE but serialises writers anyway.)
+    """
+    root = (
+        RefreshToken.objects.select_for_update()
+        .filter(family_id=family_id)
+        .order_by("created_at", "id")
+        .values_list("pk", flat=True)
+    )
+    list(root[:1])
+
+
 def rotate_refresh_token(raw: str) -> TokenPair:
     """Exchange a refresh token for a new pair; the presented token becomes unusable.
 
-    Reuse of an already-rotated token revokes the whole family. The revocation
-    must be committed even though we then reject the request, so it happens in
-    its own transaction before the error is raised.
+    Reuse of an already-rotated token revokes the whole family. The revocation is
+    committed in the same transaction that holds the family lock, before the error
+    is raised, so no concurrent rotation can slip a live token past it.
     """
     now = timezone.now()
-    reuse_family: uuid.UUID | None = None
-    with transaction.atomic():
-        try:
-            current = (
-                RefreshToken.objects.select_for_update()
-                .select_related("user")
-                .get(token_hash=_hash(raw))
-            )
-        except RefreshToken.DoesNotExist as exc:
-            raise TokenError("Invalid refresh token") from exc
+    token_hash = _hash(raw)
+    family_id = (
+        RefreshToken.objects.filter(token_hash=token_hash)
+        .values_list("family_id", flat=True)
+        .first()
+    )
+    if family_id is None:
+        raise TokenError("Invalid refresh token")
 
-        if current.revoked_at is not None:
-            if current.revoked_reason == RevocationReason.ROTATED:
-                reuse_family = current.family_id
-            else:
-                raise TokenError("Refresh token has been revoked")
-        elif current.expires_at <= now:
-            raise TokenError("Refresh token has expired")
-        elif not current.user.is_active:
-            raise TokenError("Account is disabled")
-        else:
+    revoked = 0
+    with transaction.atomic():
+        _lock_family(family_id)
+        # Also locks the user row, so an admin disabling or demoting the account waits
+        # for this rotation and then revokes the token it mints.
+        current = (
+            RefreshToken.objects.select_for_update()
+            .select_related("user")
+            .get(token_hash=token_hash)
+        )
+        if current.revoked_at is None:
+            if current.expires_at <= now:
+                raise TokenError("Refresh token has expired")
+            if not current.user.is_active:
+                raise TokenError("Account is disabled")
             replacement, new_raw = _new_refresh_token(
                 current.user, current.family_id, current.session_expires_at, now
             )
@@ -194,12 +215,15 @@ def rotate_refresh_token(raw: str) -> TokenPair:
             current.save(update_fields=["revoked_at", "revoked_reason", "replaced_by"])
             TOKENS_ISSUED.labels(grant_type="refresh_token").inc()
             return _pair(current.user, replacement, new_raw, now)
+        if current.revoked_reason != RevocationReason.ROTATED:
+            raise TokenError("Refresh token has been revoked")
+        # An already-rotated token was presented again: treat it as stolen.
+        revoked = revoke_family(family_id, RevocationReason.REUSE_DETECTED)
 
-    revoked = revoke_family(reuse_family, RevocationReason.REUSE_DETECTED)
     REFRESH_REUSE_DETECTED.inc()
     logger.warning(
         "Refresh token reuse detected; revoked token family",
-        extra={"family_id": str(reuse_family), "revoked_tokens": revoked},
+        extra={"family_id": str(family_id), "revoked_tokens": revoked},
     )
     raise RefreshTokenReuseError("Refresh token has already been used")
 
@@ -218,7 +242,9 @@ def revoke_refresh_token(raw: str) -> None:
         .first()
     )
     if family_id is not None:
-        revoke_family(family_id, RevocationReason.LOGOUT)
+        with transaction.atomic():
+            _lock_family(family_id)  # see _lock_family: no rotation can outlive the logout
+            revoke_family(family_id, RevocationReason.LOGOUT)
 
 
 def revoke_all_for_user(user: User, reason: str) -> int:
