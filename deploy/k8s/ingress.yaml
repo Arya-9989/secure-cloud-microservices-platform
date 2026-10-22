@@ -23,6 +23,7 @@ spec:
         paths:
           - { path: /api/v1/auth, pathType: Prefix, backend: { service: { name: auth-service, port: { name: http } } } }
           - { path: /api/v1/admin/users, pathType: Prefix, backend: { service: { name: auth-service, port: { name: http } } } }
+          - { path: /api/v1/admin/audit-events, pathType: Prefix, backend: { service: { name: auth-service, port: { name: http } } } }
           - { path: /.well-known/jwks.json, pathType: Exact, backend: { service: { name: auth-service, port: { name: http } } } }
 ---
 apiVersion: networking.k8s.io/v1

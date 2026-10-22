@@ -55,6 +55,7 @@ class RevocationReason(models.TextChoices):
     LOGOUT = "LOGOUT", "Logged out"
     REUSE_DETECTED = "REUSE_DETECTED", "Family revoked after token reuse"
     ACCOUNT_DISABLED = "ACCOUNT_DISABLED", "Account disabled or role changed"
+    PASSWORD_CHANGED = "PASSWORD_CHANGED", "Password changed by the account holder"
 
 
 class RefreshToken(models.Model):
@@ -132,3 +133,35 @@ class OAuthClient(models.Model):
 
     def check_secret(self, raw: str) -> bool:
         return check_password(raw, self.secret_hash)
+
+
+class AuditAction(models.TextChoices):
+    ADMIN_USER_UPDATED = "ADMIN_USER_UPDATED", "An administrator changed a role or status"
+    PASSWORD_CHANGED = "PASSWORD_CHANGED", "The account holder changed their password"
+    ACCOUNT_DELETED = "ACCOUNT_DELETED", "The account holder deleted their account"
+    OAUTH_CLIENT_PROVISIONED = "OAUTH_CLIENT_PROVISIONED", "A service client was created or changed"
+
+
+class AuditEvent(models.Model):
+    """An append-only record of a security-relevant change (who did what to whom, when).
+
+    Identities are stored as ids, never emails, so the trail survives an account's
+    erasure without keeping its personal data. Nothing in the API updates or deletes
+    these rows.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    occurred_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    action = models.CharField(max_length=40, choices=AuditAction.choices, db_index=True)
+    actor_id = models.CharField(max_length=64, blank=True, default="")  # user id or "system"
+    target_type = models.CharField(max_length=32)
+    target_id = models.CharField(max_length=64, db_index=True)
+    source_ip = models.GenericIPAddressField(null=True, blank=True)
+    request_id = models.CharField(max_length=128, blank=True, default="")
+    details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ("-occurred_at", "-id")
+
+    def __str__(self) -> str:
+        return f"{self.action} {self.target_type}:{self.target_id}"

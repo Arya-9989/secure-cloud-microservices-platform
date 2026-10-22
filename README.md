@@ -133,6 +133,8 @@ sequenceDiagram
 | Duplicate orders on retry, cross-customer key probing | Optional `Idempotency-Key`, scoped per customer, claimed under the primary key in the order's transaction; a reused key with a different request is `422` | `idempotency/`, `V3__idempotency_keys.sql` |
 | Price tampering | Clients send SKU and quantity only. Prices come from the server catalog, and unknown JSON fields are rejected | `OrderService.java`, `application.yml` |
 | Machine credentials that leak | Service tokens are DPoP-bound (useless without the client's private key), short-lived (5 min), audience-restricted to one resource and limited to client scopes. The secret is stored as an Argon2 hash, and secret guessing is throttled per client and per IP | `accounts/oauth.py`, `accounts/dpop.py`, `dpop/` (orders) |
+| Untraceable sensitive changes | Every role and status change, password change, account deletion and service-client change is an append-only `AuditEvent` (actor, target, IP, request id), written in the same transaction as the change and holding no personal data or secrets | `accounts/audit.py`, ADR 0009 |
+| A stolen session after a password change | Changing the password revokes every refresh token. Password changes and deletions need the current password and are throttled per account | `PasswordChangeView`, `MeView.delete` |
 | Stale privileges after disable / demotion | Changing a role or deactivating an account revokes every refresh token immediately. Access tokens expire within 15 minutes | `AdminUserDetailView` |
 | JWKS abuse / auth-service outage | orders-service caches the key set for 5 minutes and refetches on an unknown `kid` at most twice per 10 seconds, so forged key IDs cannot flood auth-service. If auth-service is unreachable, the last good key set keeps verifying for 20 minutes (cache TTL + token lifetime). JWKS requests time out after 2 s; when no keys can be obtained the API answers `503` with `Retry-After`, never `401` or `500` | `JwtDecoderConfig.java` |
 | Signing key exposure | The key never lives in the repo or image. With `JWT_SIGNER=vault` it never leaves Vault transit: auth-service sends only the signing input, using a token that can sign but not rotate or export. By default it's a file in a volume (`0600`) locally and a Secret in K8s. `kid` is the RFC 7638 thumbprint | `accounts/keys.py`, `accounts/kms.py`, ADR 0007 |
@@ -254,8 +256,11 @@ All routes go through the gateway. Full schemas are in the Swagger UIs listed ab
 | `POST /api/v1/auth/token/refresh/` | refresh token | Rotate. Replaying an old token revokes the session |
 | `POST /api/v1/auth/logout/` | refresh token | Revoke the session (always `204`) |
 | `GET /api/v1/auth/me/` | bearer | The caller's profile and scopes |
+| `POST /api/v1/auth/password/` | bearer + current password | Change the password; every session is signed out (`204`) |
+| `DELETE /api/v1/auth/me/` | bearer + password | Delete the account and its sessions (`204`); the last active admin can't |
 | `GET /.well-known/jwks.json` | public | RFC 7517 key set (`Cache-Control: max-age=300`) |
-| `GET /api/v1/admin/users/` · `PATCH /api/v1/admin/users/{id}/` | `users:admin` | List users; change role / disable (revokes sessions) |
+| `GET /api/v1/admin/users/?email=&role=&is_active=` · `PATCH /api/v1/admin/users/{id}/` | `users:admin` | Search users; change role / disable (revokes sessions) |
+| `GET /api/v1/admin/audit-events/?action=&target_id=` | `users:admin` | Append-only audit trail: role and status changes, password changes, deletions, client provisioning |
 | `GET /api/v1/products` | `orders:read` | Active catalog |
 | `POST /api/v1/orders` | `orders:write` | Place an order, priced server-side → `201` + `Location`. Optional `Idempotency-Key` makes retries safe (see below) |
 | `GET /api/v1/orders` · `GET /api/v1/orders/{id}` | `orders:read` | The caller's orders (paginated) / one order (404 if not yours) |

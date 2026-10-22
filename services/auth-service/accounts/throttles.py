@@ -46,6 +46,18 @@ class RefreshThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
+class AccountChangeThrottle(SimpleRateThrottle):
+    """Password changes and deletions per account: bounds guessing with a stolen token."""
+
+    scope = "account_change"
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "pk", None):
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": str(user.pk)}
+
+
 class ClientTokenIPThrottle(SimpleRateThrottle):
     """Token requests per source IP, whatever client they claim to be."""
 

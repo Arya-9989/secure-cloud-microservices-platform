@@ -7,7 +7,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from accounts.models import CLIENT_SCOPES, OAuthClient
+from accounts import audit
+from accounts.models import CLIENT_SCOPES, AuditAction, OAuthClient
 
 MIN_SECRET_LENGTH = 32
 
@@ -51,6 +52,7 @@ class Command(BaseCommand):
         created = client is None
         if client is None:
             client = OAuthClient(client_id=options["client_id"])
+        before = (client.scopes, client.audiences, client.require_dpop) if not created else None
         client.name = options["name"] or client.name
         client.scopes = sorted(set(options["scope"]))
         client.audiences = sorted(set(options["audience"]))
@@ -63,5 +65,18 @@ class Command(BaseCommand):
         except ValidationError as exc:
             raise CommandError(f"Invalid client: {exc}") from exc
         client.save()
+        if created or rotated or before != (client.scopes, client.audiences, client.require_dpop):
+            audit.record(
+                AuditAction.OAUTH_CLIENT_PROVISIONED,
+                target_type="oauth_client",
+                target_id=client.client_id,
+                details={
+                    "created": created,
+                    "secret_rotated": rotated,
+                    "scopes": client.scopes,
+                    "audiences": client.audiences,
+                    "require_dpop": client.require_dpop,
+                },
+            )
         action = "Created" if created else ("Updated (secret rotated)" if rotated else "Updated")
         self.stdout.write(self.style.SUCCESS(f"{action} OAuth client {client.client_id}"))

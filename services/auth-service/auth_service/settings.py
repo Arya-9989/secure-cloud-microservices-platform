@@ -152,6 +152,7 @@ REST_FRAMEWORK = {
         "register": env_str("REGISTER_RATE_PER_IP", "10/hour"),
         "refresh": env_str("REFRESH_RATE_PER_IP", "60/min"),
         "client_token_ip": env_str("CLIENT_TOKEN_RATE_PER_IP", "60/min"),
+        "account_change": env_str("ACCOUNT_CHANGE_RATE_PER_ACCOUNT", "10/hour"),
         "client_token_client": env_str("CLIENT_TOKEN_RATE_PER_CLIENT", "30/min"),
     },
 }

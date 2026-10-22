@@ -5,7 +5,7 @@ from typing import Any, NoReturn, cast
 
 from django.db import transaction
 from django.http import QueryDict
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, generics, status
 from rest_framework.parsers import FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -15,20 +15,24 @@ from rest_framework.views import APIView
 
 from platform_core.metrics import LOGIN_ATTEMPTS
 
-from . import dpop
+from . import audit, dpop
 from .keys import get_key_set
-from .models import RevocationReason, User
+from .models import AuditAction, AuditEvent, RevocationReason, Role, User
 from .oauth import OAuthError, issue_token
 from .permissions import HasScope
 from .serializers import (
+    AccountDeletionSerializer,
     AdminUserUpdateSerializer,
+    AuditEventSerializer,
     LoginSerializer,
+    PasswordChangeSerializer,
     RefreshSerializer,
     RegisterSerializer,
     TokenResponseSerializer,
     UserSerializer,
 )
 from .throttles import (
+    AccountChangeThrottle,
     ClientTokenClientThrottle,
     ClientTokenIPThrottle,
     LoginAccountThrottle,
@@ -217,9 +221,88 @@ def _header_values(request: Request, meta_key: str) -> list[str]:
 @extend_schema(tags=["auth"], summary="The authenticated caller", responses={200: UserSerializer})
 class MeView(APIView):
     permission_classes = (IsAuthenticated,)
+    throttle_classes = (AccountChangeThrottle,)
+
+    def get_throttles(self) -> list[Any]:
+        # Reading your own profile is not rate limited; deleting the account is.
+        return super().get_throttles() if self.request.method == "DELETE" else []
 
     def get(self, request: Request) -> Response:
         return Response(UserSerializer(cast(User, request.user)).data)
+
+    @extend_schema(
+        summary="Delete your account (confirm with your password)",
+        description=(
+            "Erases the account and every session immediately. Orders stay with the orders "
+            "service under the account's opaque id, which no longer maps to a person. The "
+            "last active administrator cannot delete their account (400)."
+        ),
+        request=AccountDeletionSerializer,
+        responses={204: None, 400: OpenApiResponse(description="Wrong password, or last admin")},
+    )
+    def delete(self, request: Request) -> Response:
+        user = cast(User, request.user)
+        serializer = AccountDeletionSerializer(data=request.data, context={"user": user})
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            # Locks the remaining admins, so two admins cannot delete themselves at once.
+            others = (
+                User.objects.select_for_update()
+                .filter(role=Role.ADMIN, is_active=True)
+                .exclude(pk=user.pk)
+            )
+            if user.role == Role.ADMIN and not list(others):
+                raise exceptions.ValidationError(
+                    "The last active administrator cannot delete their account."
+                    " Promote another administrator first.",
+                    code="last_admin",
+                )
+            user_id, role = str(user.pk), user.role
+            user.delete()  # refresh tokens cascade
+            audit.record(
+                AuditAction.ACCOUNT_DELETED,
+                actor_id=user_id,
+                target_type="user",
+                target_id=user_id,
+                request=request,
+                details={"role": role},
+            )
+        logger.info("Account deleted by its holder", extra={"user_id": user_id})
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(
+    tags=["auth"],
+    summary="Change your password; every session is signed out",
+    description=(
+        "Needs the current password. All refresh tokens (every device, this one included) "
+        "are revoked, so log in again with the new password. Access tokens already issued "
+        "expire on their own within 15 minutes. Rate limited per account."
+    ),
+    request=PasswordChangeSerializer,
+    responses={204: None, 400: OpenApiResponse(description="Wrong or weak password")},
+)
+class PasswordChangeView(APIView):
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (AccountChangeThrottle,)
+
+    def post(self, request: Request) -> Response:
+        user = cast(User, request.user)
+        serializer = PasswordChangeSerializer(data=request.data, context={"user": user})
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            user.set_password(serializer.validated_data["new_password"])
+            user.save(update_fields=["password", "updated_at"])
+            revoked = revoke_all_for_user(user, RevocationReason.PASSWORD_CHANGED)
+            audit.record(
+                AuditAction.PASSWORD_CHANGED,
+                actor_id=str(user.pk),
+                target_type="user",
+                target_id=str(user.pk),
+                request=request,
+                details={"sessions_revoked": revoked},
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(
@@ -239,12 +322,61 @@ class JWKSView(PublicEndpoint):
 ADMIN_PERMISSIONS = (IsAuthenticated, HasScope)
 
 
-@extend_schema(tags=["admin"], summary="List users (scope users:admin)")
+@extend_schema(
+    tags=["admin"],
+    summary="List and search users (scope users:admin)",
+    parameters=[
+        OpenApiParameter("email", str, description="Case-insensitive substring of the email"),
+        OpenApiParameter("role", str, enum=[r.value for r in Role]),
+        OpenApiParameter("is_active", bool),
+    ],
+)
 class AdminUserListView(generics.ListAPIView[User]):
     permission_classes = ADMIN_PERMISSIONS
     required_scope = "users:admin"
-    queryset = User.objects.all()
     serializer_class = UserSerializer
+
+    def get_queryset(self) -> Any:
+        users = User.objects.all()
+        params = self.request.query_params
+        if email := params.get("email", "").strip():
+            if len(email) > 254:
+                raise exceptions.ValidationError({"email": "Too long."})
+            users = users.filter(email__icontains=email.lower())
+        if role := params.get("role"):
+            if role not in Role.values:
+                raise exceptions.ValidationError({"role": f"One of {', '.join(Role.values)}."})
+            users = users.filter(role=role)
+        if (active := params.get("is_active")) is not None:
+            if active not in ("true", "false"):
+                raise exceptions.ValidationError({"is_active": "true or false."})
+            users = users.filter(is_active=active == "true")
+        return users
+
+
+@extend_schema(
+    tags=["admin"],
+    summary="Audit trail of security-relevant changes (scope users:admin)",
+    parameters=[
+        OpenApiParameter("action", str, enum=[a.value for a in AuditAction]),
+        OpenApiParameter("target_id", str),
+    ],
+)
+class AdminAuditEventListView(generics.ListAPIView[AuditEvent]):
+    permission_classes = ADMIN_PERMISSIONS
+    required_scope = "users:admin"
+    serializer_class = AuditEventSerializer
+
+    def get_queryset(self) -> Any:
+        events = AuditEvent.objects.all()
+        params = self.request.query_params
+        if action := params.get("action"):
+            if action not in AuditAction.values:
+                raise exceptions.ValidationError({"action": "Unknown action."})
+            events = events.filter(action=action)
+        if target := params.get("target_id"):
+            events = events.filter(target_id=target[:64])
+        return events
 
 
 @extend_schema(tags=["admin"], summary="Get or update a user (scope users:admin)")
@@ -274,11 +406,26 @@ class AdminUserDetailView(generics.RetrieveUpdateAPIView[User]):
             and serializer.validated_data[field] != getattr(target, field)
             for field in ("role", "is_active")
         )
+        before = {field: getattr(target, field) for field in ("role", "is_active")}
         with transaction.atomic():
             user = serializer.save()
             if privileges_changed:
                 # Existing sessions must not keep minting tokens with stale privileges.
                 revoke_all_for_user(user, RevocationReason.ACCOUNT_DISABLED)
+            changes = {
+                field: {"from": before[field], "to": getattr(user, field)}
+                for field in before
+                if before[field] != getattr(user, field)
+            }
+            if changes:
+                audit.record(
+                    AuditAction.ADMIN_USER_UPDATED,
+                    actor_id=str(request.user.pk),
+                    target_type="user",
+                    target_id=str(user.pk),
+                    request=request,
+                    details=changes,
+                )
         logger.info(
             "User updated by admin",
             extra={"target_user_id": str(user.pk), "changes": serializer.validated_data},
