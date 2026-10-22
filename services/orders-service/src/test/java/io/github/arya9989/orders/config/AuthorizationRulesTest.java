@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.arya9989.orders.catalog.ProductController;
 import io.github.arya9989.orders.catalog.ProductRepository;
+import io.github.arya9989.orders.idempotency.IdempotentOrderPlacement;
 import io.github.arya9989.orders.order.AdminOrderController;
 import io.github.arya9989.orders.order.OrderController;
 import io.github.arya9989.orders.order.OrderService;
@@ -47,6 +48,7 @@ class AuthorizationRulesTest {
 
   @Autowired MockMvc mvc;
   @MockitoBean OrderService orders;
+  @MockitoBean IdempotentOrderPlacement placement;
   @MockitoBean ProductRepository products;
   @MockitoBean JwtDecoder jwtDecoder;
 
@@ -231,6 +233,23 @@ class AuthorizationRulesTest {
                   .content(
                       "{\"lines\": [{\"sku\": \"KB-001\", \"quantity\": 1, \"unitPrice\": 0.01}]}"))
           .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void malformedIdempotencyKeysAreRejected() throws Exception {
+      for (String key :
+          new String[] {"short", "has space inside", "a,b-12345678", "\"\"", "x".repeat(129)}) {
+        mvc.perform(
+                post("/api/v1/orders")
+                    .with(token("SCOPE_orders:write"))
+                    .header("Idempotency-Key", key)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(VALID_ORDER))
+            .andExpect(status().isBadRequest())
+            .andExpect(
+                jsonPath("$.detail")
+                    .value(org.hamcrest.Matchers.containsString("Idempotency-Key")));
+      }
     }
 
     @Test

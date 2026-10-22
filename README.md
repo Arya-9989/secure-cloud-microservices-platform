@@ -130,6 +130,7 @@ sequenceDiagram
 | Password storage | Argon2id, minimum 12 characters, common and numeric password validators | `auth_service/settings.py` |
 | Privilege escalation | Role is never client-settable. The admin API needs scope `users:admin`. The orders admin API needs both `ROLE_ADMIN` and `SCOPE_orders:admin`. Unmatched routes are `denyAll` | `SecurityConfig.java`, `accounts/views.py` |
 | IDOR / data leakage | Ownership is part of the SQL query, so another user's order returns **404, not 403** | `OrderRepository.java` |
+| Duplicate orders on retry, cross-customer key probing | Optional `Idempotency-Key`, scoped per customer, claimed under the primary key in the order's transaction; a reused key with a different request is `422` | `idempotency/`, `V3__idempotency_keys.sql` |
 | Price tampering | Clients send SKU and quantity only. Prices come from the server catalog, and unknown JSON fields are rejected | `OrderService.java`, `application.yml` |
 | Stale privileges after disable / demotion | Changing a role or deactivating an account revokes every refresh token immediately. Access tokens expire within 15 minutes | `AdminUserDetailView` |
 | JWKS abuse / auth-service outage | orders-service caches the key set for 5 minutes and refetches on an unknown `kid` at most twice per 10 seconds, so forged key IDs cannot flood auth-service. If auth-service is unreachable, the last good key set keeps verifying for 20 minutes (cache TTL + token lifetime). JWKS requests time out after 2 s; when no keys can be obtained the API answers `503` with `Retry-After`, never `401` or `500` | `JwtDecoderConfig.java` |
@@ -223,6 +224,7 @@ All configuration comes from environment variables. In the compose setup they co
 | `PLATFORM_SECURITY_JWK_SET_URI` | orders | `http://auth-service:8000/.well-known/jwks.json` | Where to fetch verification keys |
 | `PLATFORM_SECURITY_CLOCK_SKEW` | orders | `30s` | Tolerated clock drift |
 | `PLATFORM_SECURITY_JWKS_CACHE_TTL` / `_REFETCH_MIN_INTERVAL` | orders | `5m` / `10s` | Key-set cache lifetime; at most two refetches per interval for unknown `kid`s |
+| `PLATFORM_ORDERS_IDEMPOTENCY_TTL` / `_LOCK_TIMEOUT` | orders | `24h` / `5s` | How long idempotency keys are kept; how long a duplicate waits for the first request |
 | `PLATFORM_SECURITY_JWKS_OUTAGE_TOLERANCE` / `_TIMEOUT` | orders | `20m` / `2s` | How long the last good key set is used while the JWKS is unreachable; per-request timeout |
 | `AUTH_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | auth-init | – | Creates the first administrator (idempotent) |
 | `TRACING_ENABLED` | gateway, auth, orders (compose) | `false` | Distributed tracing; set together with `COMPOSE_PROFILES=tracing` |
@@ -243,12 +245,33 @@ All routes go through the gateway. Full schemas are in the Swagger UIs listed ab
 | `GET /.well-known/jwks.json` | public | RFC 7517 key set (`Cache-Control: max-age=300`) |
 | `GET /api/v1/admin/users/` · `PATCH /api/v1/admin/users/{id}/` | `users:admin` | List users; change role / disable (revokes sessions) |
 | `GET /api/v1/products` | `orders:read` | Active catalog |
-| `POST /api/v1/orders` | `orders:write` | Place an order, priced server-side → `201` + `Location` |
+| `POST /api/v1/orders` | `orders:write` | Place an order, priced server-side → `201` + `Location`. Optional `Idempotency-Key` makes retries safe (see below) |
 | `GET /api/v1/orders` · `GET /api/v1/orders/{id}` | `orders:read` | The caller's orders (paginated) / one order (404 if not yours) |
 | `POST /api/v1/orders/{id}/cancel` | `orders:write` | Cancel while `PENDING` (else `409`) |
 | `GET /api/v1/admin/orders?status=` | `ROLE_ADMIN` + `orders:admin` | All orders |
 | `PATCH /api/v1/admin/orders/{id}/status` | `ROLE_ADMIN` + `orders:admin` | Lifecycle `PENDING → CONFIRMED → SHIPPED → DELIVERED` (or `CANCELLED`); invalid moves → `409` |
 | `GET /.well-known/oauth-protected-resource` | public | RFC 9728 metadata for the orders API |
+
+### Idempotent order placement
+
+Send an `Idempotency-Key` (for example a UUID) with `POST /api/v1/orders`, and a retry after a timeout can't place the order twice ([ADR 0003](docs/adr/0003-idempotency-keys.md), following the IETF *Idempotency-Key* draft):
+
+| Situation | Response |
+|---|---|
+| First request with the key | `201`, the order is placed and the response stored |
+| Same key, same request (whitespace and field order don't matter) | The stored `201` again (same order id and `Location`), with `Idempotent-Replayed: true` |
+| Same key, different request | `422` |
+| Duplicate arriving while the first request is still running | It waits up to 5 s, then `409` with `Retry-After: 1` |
+| Malformed key (not 8–128 of `[A-Za-z0-9._:-]`) | `400` |
+
+Keys are scoped to the customer (the token's `sub`) and kept for 24 hours. Only successful responses are stored, so a request that fails validation can be corrected and retried with the same key. Duplicates are serialised by the table's primary key: the key is claimed with `INSERT … ON CONFLICT` in the same transaction that places the order, so a concurrent duplicate waits for the first transaction and then replays its response. Tests fire 8 identical requests at once and assert exactly one order. Expired keys are purged in batches every 10 minutes.
+
+```bash
+KEY=$(python -c 'import uuid; print(uuid.uuid4())')
+for attempt in 1 2; do
+  curl -si -X POST localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN"     -H "Idempotency-Key: $KEY" -H 'Content-Type: application/json'     -d '{"lines":[{"sku":"KB-001","quantity":1}]}' | grep -E '^HTTP|Idempotent-Replayed|"id"'
+done
+```
 
 Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts/models.py)). `USER` gets `orders:read orders:write`, and `ADMIN` additionally gets `orders:admin users:admin`.
 
@@ -410,7 +433,6 @@ These are **not implemented** yet:
 
 - OAuth2 client-credentials grant for service-to-service calls, and DPoP / mTLS-bound access tokens.
 - Signing keys in a KMS/HSM, with automated rotation driven by `JWT_ADDITIONAL_PUBLIC_KEY_FILES`.
-- Idempotency keys for `POST /api/v1/orders`.
 - Image signing with cosign and admission-time verification; a Helm chart or Argo CD application for GitOps delivery.
 - Load tests (k6) with latency SLOs enforced in CI.
 

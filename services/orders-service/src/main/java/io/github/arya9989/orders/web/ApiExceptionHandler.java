@@ -1,5 +1,8 @@
 package io.github.arya9989.orders.web;
 
+import io.github.arya9989.orders.idempotency.IdempotencyKey.InvalidIdempotencyKeyException;
+import io.github.arya9989.orders.idempotency.IdempotentOrderPlacement.IdempotencyKeyInProgressException;
+import io.github.arya9989.orders.idempotency.IdempotentOrderPlacement.IdempotencyKeyReusedException;
 import io.github.arya9989.orders.order.InvalidOrderStateException;
 import io.github.arya9989.orders.order.OrderNotFoundException;
 import io.github.arya9989.orders.order.UnknownProductException;
@@ -42,6 +45,26 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
   ProblemDetail unknownProduct(UnknownProductException ex) {
     return withRequestId(
         ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage()));
+  }
+
+  @ExceptionHandler(InvalidIdempotencyKeyException.class)
+  ProblemDetail invalidIdempotencyKey(InvalidIdempotencyKeyException ex) {
+    return withRequestId(ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage()));
+  }
+
+  @ExceptionHandler(IdempotencyKeyReusedException.class)
+  ProblemDetail idempotencyKeyReused(IdempotencyKeyReusedException ex) {
+    return withRequestId(
+        ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage()));
+  }
+
+  /** The first request with this key is still running; the draft recommends 409 for this. */
+  @ExceptionHandler(IdempotencyKeyInProgressException.class)
+  ResponseEntity<ProblemDetail> idempotencyKeyInProgress(IdempotencyKeyInProgressException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .header(HttpHeaders.RETRY_AFTER, "1")
+        .body(
+            withRequestId(ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage())));
   }
 
   @Override
