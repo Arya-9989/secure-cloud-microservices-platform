@@ -177,7 +177,7 @@
           <text class="d-mono" x="1040" y="526" text-anchor="end">observability · bound to 127.0.0.1</text>
           <rect class="d-node" x="264" y="544" width="360" height="62" rx="14"/>
           <text class="d-title" x="284" y="570">Prometheus</text>
-          <text class="d-sub" x="284" y="592">Scrapes :8082 · :9100 · :8081 · 5 alert rules</text>
+          <text class="d-sub" x="284" y="592">Scrapes :8082 · :9100 · :8081 · 6 alert rules</text>
           <rect class="d-node" x="680" y="544" width="360" height="62" rx="14"/>
           <text class="d-title" x="700" y="570">Grafana</text>
           <text class="d-sub" x="700" y="592">Provisioned overview dashboard</text>
@@ -248,7 +248,7 @@
           <rect class="d-node" x="24" y="800" width="148" height="76" rx="14"/>
           <text class="d-title" x="40" y="828">Prometheus</text>
           <text class="d-sub" x="40" y="848">Scrapes metrics</text>
-          <text class="d-sub" x="40" y="866">5 alert rules</text>
+          <text class="d-sub" x="40" y="866">6 alert rules</text>
           <rect class="d-node" x="192" y="800" width="148" height="76" rx="14"/>
           <text class="d-title" x="208" y="828">Grafana</text>
           <text class="d-sub" x="208" y="848">Provisioned</text>
@@ -280,7 +280,7 @@
       <div class="wrap">
         <p class="eyebrow reveal">Tokens</p>
         <h2 id="tokens-h" class="section-title reveal">Signed once.<br>Verified anywhere.</h2>
-        <p class="section-lead reveal">auth-service signs short-lived access tokens and publishes the public keys as a JSON Web Key Set. orders-service checks every token locally, so the identity service is never on the hot path of a read.</p>
+        <p class="section-lead reveal">auth-service signs short-lived access tokens and publishes the public keys as a JSON Web Key Set. orders-service checks every token locally against cached keys, so the identity service is never on the hot path of a read, and reads keep working through an auth-service outage for as long as the tokens are valid.</p>
 
         <div class="split">
           <ol class="steps" role="list">
@@ -302,7 +302,7 @@
             <li class="step reveal">
               <span class="step-n" aria-hidden="true">04</span>
               <h3 class="step-title">Rotate</h3>
-              <p>An unknown <code>kid</code> triggers a JWKS refetch, so orders-service picks up a new signing key without a restart. Retired public keys can stay in the set until their last tokens expire.</p>
+              <p>An unknown <code>kid</code> triggers a JWKS refetch, at most two every 10&nbsp;seconds, so orders-service picks up a new signing key without a restart and forged key IDs cannot flood auth-service. Retired public keys can stay in the set until their last tokens expire.</p>
             </li>
           </ol>
 
@@ -454,10 +454,11 @@
       <div class="wrap">
         <ul class="tiles tiles-2" role="list">
           <li class="tile reveal">
-            <h3 class="tile-title">Five alert rules.</h3>
+            <h3 class="tile-title">Six alert rules.</h3>
             <ul class="facts" role="list">
               <li><code>TargetDown</code><span>A target is not scraped for 1 minute.</span></li>
-              <li><code>HighServerErrorRate</code><span>Over 5% of requests fail with 5xx for 5 minutes.</span></li>
+              <li><code>HighServerErrorRate</code><span>Over 5% of a service&#8217;s own responses are 5xx for 5 minutes.</span></li>
+              <li><code>GatewayErrorRate</code><span>Over 5% of a route&#8217;s requests fail with 5xx at the gateway for 5 minutes, including a service that is down.</span></li>
               <li><code>SlowRequests</code><span>95th-percentile latency above 1 second for 10 minutes.</span></li>
               <li><code>RefreshTokenReuse</code><span>Any replay in the last 15 minutes.</span></li>
               <li><code>LoginBruteForce</code><span>More than one failed or throttled login per second for 5 minutes.</span></li>
@@ -480,10 +481,10 @@
 
         <ol class="pipeline" role="list">
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">1</span><h3>Lint and types</h3><p>ruff, <code>mypy --strict</code>, Spotless, <code>-Werror</code></p></li>
-          <li class="stage reveal"><span class="stage-n" aria-hidden="true">2</span><h3>Unit and integration</h3><p>79 pytest tests on PostgreSQL. 49 JUnit tests with Testcontainers.</p></li>
-          <li class="stage reveal"><span class="stage-n" aria-hidden="true">3</span><h3>Audit and validate</h3><p><code>pip-audit</code> on locked dependencies. <code>kubeconform -strict</code> on the manifests.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">2</span><h3>Unit and integration</h3><p>84 pytest tests on PostgreSQL. 59 JUnit tests with Testcontainers. 11 Node tests for the live console.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">3</span><h3>Audit and validate</h3><p><code>pip-audit</code> on locked dependencies. <code>kubeconform -strict</code> on the manifests. <code>promtool</code> tests for every alert rule.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">4</span><h3>Scan</h3><p>Trivy fails the build on any fixable HIGH or CRITICAL vulnerability in every image.</p></li>
-          <li class="stage reveal"><span class="stage-n" aria-hidden="true">5</span><h3>End to end</h3><p>28 black-box tests against the full stack, through the gateway.</p></li>
+          <li class="stage reveal"><span class="stage-n" aria-hidden="true">5</span><h3>End to end</h3><p>31 black-box tests against the full stack, through the gateway.</p></li>
           <li class="stage reveal"><span class="stage-n" aria-hidden="true">6</span><h3>Publish</h3><p>On <code>main</code> only: both service images go to GHCR with SBOM and provenance attestations.</p></li>
         </ol>
       </div>
@@ -497,7 +498,7 @@
 <span class="c-dim">$</span> docker compose up --build --wait</code></pre>
         <div class="cta-row reveal">
           <a class="pill" href="/docs/auth/">Auth API reference</a>
-          <a class="pill pill-outline" href="/docs/orders/swagger-ui.html">Orders API reference</a>
+          <a class="pill pill-outline" href="/docs/orders/swagger-ui/index.html">Orders API reference</a>
         </div>
       </div>
     </section>
@@ -509,7 +510,7 @@
       <nav aria-label="Footer">
         <a href="https://github.com/Arya-9989/secure-cloud-microservices-platform">Source on GitHub</a>
         <a href="/docs/auth/">Auth API</a>
-        <a href="/docs/orders/swagger-ui.html">Orders API</a>
+        <a href="/docs/orders/swagger-ui/index.html">Orders API</a>
       </nav>
     </div>
   </footer>

@@ -52,7 +52,7 @@ flowchart LR
     gw -->|/ and /assets/| landing
     gw -->|/api/v1/auth, /.well-known/jwks.json| auth
     gw -->|/api/v1/orders, /api/v1/products| orders
-    orders -. "JWKS fetch (cached, refetch on unknown kid)" .-> auth
+    orders -. "JWKS fetch (cached 5 min, refetch on unknown kid)" .-> auth
     auth --> pg
     orders --> pg
     prom -. ":9100 /metrics" .-> auth
@@ -82,7 +82,7 @@ sequenceDiagram
 
     C->>G: GET /api/v1/orders (Authorization: Bearer ...)
     G->>O: forward
-    O->>A: GET /.well-known/jwks.json (first use or unknown kid only)
+    O->>A: GET /.well-known/jwks.json (cache miss: first use, after 5 min, or unknown kid)
     O->>O: verify RS256 signature, iss, aud, exp, sub; map scope/roles
     O->>DB: SELECT ... WHERE customer_id = token.sub
     O-->>C: 200 orders
@@ -113,19 +113,20 @@ sequenceDiagram
 | Threat / concern | Control | Where |
 |---|---|---|
 | Token forgery, `alg=none`, HS256/RS256 key confusion | Only RS256 accepted. The key is chosen by `kid` from our own key set, never from the token. Tests forge each variant | `accounts/tokens.py`, `JwtDecoderConfig.java`, both test suites |
-| Tokens for another API or issuer | `iss` and `aud` validated on both sides; `sub`, `exp`, `iat`, `jti` required | same |
-| Stolen refresh token | Opaque, single-use, stored only as SHA-256. A replay revokes the whole session family. Sessions have a 30-day absolute lifetime | `accounts/tokens.py` |
-| Credential stuffing / brute force | Two independent throttles (per client IP and per target account) share the DB cache across workers. Edge rate limits too. Failures look identical and use timing-safe hashing | `accounts/throttles.py`, `gateway/dynamic/routes.yml` |
+| Tokens for another API or issuer | `iss`, `aud`, `exp` and `sub` validated on both sides; auth-service also requires `iat` and `jti` | same |
+| Stolen refresh token | Opaque, single-use, stored only as SHA-256. A replay revokes the whole session family. Rotation, replay revocation and logout lock the family first, so a racing rotation cannot keep a live token. Sessions have a 30-day absolute lifetime | `accounts/tokens.py` |
+| Credential stuffing / brute force | Two independent throttles (per client IP and per target account) share the DB cache across workers. Edge rate limits too, at the compose gateway and the Kubernetes ingress. Failures look identical and use timing-safe hashing | `accounts/throttles.py`, `gateway/dynamic/routes.yml`, `deploy/k8s/middlewares.yaml` |
 | Password storage | Argon2id, minimum 12 characters, common and numeric password validators | `auth_service/settings.py` |
 | Privilege escalation | Role is never client-settable. The admin API needs scope `users:admin`. The orders admin API needs both `ROLE_ADMIN` and `SCOPE_orders:admin`. Unmatched routes are `denyAll` | `SecurityConfig.java`, `accounts/views.py` |
 | IDOR / data leakage | Ownership is part of the SQL query, so another user's order returns **404, not 403** | `OrderRepository.java` |
 | Price tampering | Clients send SKU and quantity only. Prices come from the server catalog, and unknown JSON fields are rejected | `OrderService.java`, `application.yml` |
 | Stale privileges after disable / demotion | Changing a role or deactivating an account revokes every refresh token immediately. Access tokens expire within 15 minutes | `AdminUserDetailView` |
+| JWKS abuse / auth-service outage | orders-service caches the key set for 5 minutes and refetches on an unknown `kid` at most twice per 10 seconds, so forged key IDs cannot flood auth-service. If auth-service is unreachable, the last good key set keeps verifying for 20 minutes (cache TTL + token lifetime). JWKS requests time out after 2 s; when no keys can be obtained the API answers `503` with `Retry-After`, never `401` or `500` | `JwtDecoderConfig.java` |
 | Signing key exposure | The key never lives in the repo or image. It is generated into a volume (`0600`) locally and mounted from a Secret in K8s. `kid` is the RFC 7638 thumbprint, and extra public keys can be published for rotation | `accounts/keys.py`, `ensure_signing_key` |
 | Secrets in source | None. `scripts/init_env.py` generates `.env` locally (git-ignored), and the services refuse to start without required secrets | `.env.example`, `settings.py` |
 | Container breakout / lateral movement | Non-root users, read-only root filesystems, all capabilities dropped, `no-new-privileges`, distroless JVM image. K8s adds restricted Pod Security and default-deny NetworkPolicies | Dockerfiles, `compose.yaml`, `deploy/k8s/` |
 | Vulnerable dependencies | `pip-audit` on locked Python deps. Trivy fails CI on fixable HIGH/CRITICAL in either image (OS and language packages). Dependabot keeps everything current | `.github/workflows/ci.yml` |
-| Script injection in browser-facing pages | No inline script or style anywhere. The landing page sends `default-src 'none'` with `script-src 'self'` and `require-trusted-types-for 'script'`, and writes to the DOM through `textContent` only. Both Swagger UI pages run under `script-src 'self'` without `'unsafe-inline'`: their bootstrap scripts are files and every asset is self-hosted | `services/landing/`, `auth_service/settings.py`, `SecurityConfig.java` |
+| Script injection in browser-facing pages | No inline script or style anywhere. The landing page sends `default-src 'none'` with `script-src 'self'` and `require-trusted-types-for 'script'`, and writes to the DOM through `textContent` only. Both Swagger UI pages run under `script-src 'self'` without `'unsafe-inline'`: their bootstrap scripts are files and every asset is self-hosted. All three send `Cross-Origin-Opener-Policy: same-origin`, and bearer tokens typed into a Swagger page are not persisted to `localStorage` | `services/landing/`, `auth_service/settings.py`, `SecurityConfig.java` |
 | Transport | HTTPS entry point (TLS 1.2+, AEAD ciphers) with HSTS. HTTP→HTTPS redirect is a one-line production switch | `gateway/` |
 
 Errors on both services, including 401 and 403, are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json` documents carrying the `request_id`. The orders service also publishes [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected-resource metadata, which it advertises in `WWW-Authenticate`.
@@ -158,6 +159,8 @@ docker compose up --build --wait           # ~2-3 min on first build
 | https://localhost:8443 | Same routes over TLS (self-signed locally) |
 | http://localhost:3000 | Grafana (user `admin`, password `GRAFANA_ADMIN_PASSWORD` in `.env`) |
 | http://localhost:9090 | Prometheus (targets, alert rules) |
+
+Host ports come from `.env` (`GATEWAY_HTTP_PORT`, `GATEWAY_HTTPS_PORT`, `PROMETHEUS_PORT`, `GRAFANA_PORT`) or the shell environment. `demo_traffic.py` and the end-to-end suite follow the same settings.
 
 Try it:
 
@@ -203,6 +206,8 @@ All configuration comes from environment variables. In the compose setup they co
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | orders | localhost / `orders` / *(none)* | PostgreSQL connection |
 | `PLATFORM_SECURITY_JWK_SET_URI` | orders | `http://auth-service:8000/.well-known/jwks.json` | Where to fetch verification keys |
 | `PLATFORM_SECURITY_CLOCK_SKEW` | orders | `30s` | Tolerated clock drift |
+| `PLATFORM_SECURITY_JWKS_CACHE_TTL` / `_REFETCH_MIN_INTERVAL` | orders | `5m` / `10s` | Key-set cache lifetime; at most two refetches per interval for unknown `kid`s |
+| `PLATFORM_SECURITY_JWKS_OUTAGE_TOLERANCE` / `_TIMEOUT` | orders | `20m` / `2s` | How long the last good key set is used while the JWKS is unreachable; per-request timeout |
 | `AUTH_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | auth-init | – | Creates the first administrator (idempotent) |
 
 ## API overview
@@ -232,17 +237,17 @@ Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts
 
 - **Metrics:** Both services export the same `http_server_requests_seconds{method,uri,status}` histogram: Micrometer on the JVM, and a matching hand-rolled metric in Python. One PromQL query therefore covers every service. Gunicorn runs several worker processes, so auth-service aggregates them with prometheus_client's multiprocess mode and serves the result from the gunicorn master on an internal port. Business and security metrics include `auth_login_attempts_total{outcome}`, `auth_tokens_issued_total{grant_type}`, `auth_refresh_token_reuse_detected_total` and `orders_placed_total`.
 - **Dashboard:** The provisioned Grafana dashboard ([JSON](observability/grafana/dashboards/platform-overview.json)) has four rows:
-  - golden signals: targets up, gateway throughput, 5xx ratio, slowest p95, logins and orders in the last hour
-  - traffic and latency: requests and p95/p99 latency per service, gateway responses by status class (429s split out), errors by service
+  - golden signals: targets up, gateway throughput, gateway 5xx ratio, slowest p95, successful logins and orders placed in the last hour
+  - traffic and latency: requests and p95/p99 latency per service, gateway responses by status class (429s split out), errors each service reports
   - security events: login outcomes, token grants, refresh-token replays
   - runtime and edge: JVM heap, connection pool, gateway p95 per backend
 
-  Every panel has a description and a fixed unit. Each service keeps one colour on every panel (auth-service blue, orders-service orange, gateway green, landing amber). Status colours are reserved for status, such as 2xx, 4xx, 429 and 5xx or login outcomes. Stat tiles stay neutral until they cross the matching alert threshold.
+  Every panel has a description and a fixed unit. Gateway figures come from Traefik's router metrics, so they include the `502`/`503` the gateway returns when a service is down, which the service itself cannot report. An end-to-end test runs every panel query against Prometheus and fails on an empty one. Each service keeps one colour on every panel (auth-service blue, orders-service orange, landing aqua; the three pass a colour-vision-deficiency check). Status colours are reserved for status, such as 2xx, 4xx, 429 and 5xx or login outcomes. Stat tiles stay neutral until they cross the matching alert threshold.
 ![Grafana dashboard: golden signals, traffic and latency, security events and runtime health](docs/screenshots/grafana-dashboard.png)
 
 <sub>Provisioned Grafana dashboard after running `scripts/demo_traffic.py`. Refresh-token replays and throttled logins are generated on purpose.</sub>
 
-- **Alerts:** [Prometheus rules](observability/prometheus/alerts.yml) cover target down, 5xx ratio > 5 %, p95 > 1 s, refresh-token replay and sustained failed logins. They are visible under Prometheus → Alerts. Routing them to a pager is listed as future work.
+- **Alerts:** six [Prometheus rules](observability/prometheus/alerts.yml) cover target down, a service's own 5xx ratio > 5 %, a route's 5xx ratio at the gateway > 5 % (which includes a service that is down), p95 > 1 s, refresh-token replay and sustained failed logins. Each has a `promtool` unit test ([`alerts.test.yml`](observability/prometheus/alerts.test.yml)). They are visible under Prometheus → Alerts. Routing them to a pager is listed as future work.
 - **Logs:** Every component writes one JSON object per line with a shared schema (`@timestamp`, `level`, `logger_name`, `message`, `service`, `request_id`, `user_id`). Each request produces exactly one access-log line with route, status and duration.
 - **Correlation:** A client-supplied `X-Request-ID` (validated: 8–128 safe characters) is kept, and otherwise one is generated. The ID is echoed in the response, attached to every log line and problem response, and recorded by the gateway access log. The `Authorization` header is redacted there.
 
@@ -258,23 +263,25 @@ orders   {"message":"GET /api/v1/products 200","request_id":"smoke-test-0001","u
 | Job | What it proves |
 |---|---|
 | `auth-service` | Locked install, ruff, `mypy --strict`, pytest with coverage **against PostgreSQL**, `pip-audit`, image build, Trivy scan |
-| `landing` | Script syntax check, image build (runs `nginx -t`), Trivy scan |
+| `landing` | Script syntax check, live-console unit tests (`node --test`), image build (runs `nginx -t`), Trivy scan |
 | `orders-service` | Spotless, `-Werror` compile, JUnit + Testcontainers (real PostgreSQL), image build, Trivy scan |
-| `platform-config` | `kustomize` + `kubeconform -strict`, compose validation, lint/type-check of e2e tests and scripts |
+| `platform-config` | `kustomize` + `kubeconform -strict` (with Traefik CRD schemas), `promtool` config check and alert-rule tests, compose validation, lint of e2e tests and scripts, type-check of the e2e tests |
 | `e2e` | `docker compose up --wait` of the full stack, then the black-box suite through the gateway; logs dumped on failure |
 | `publish` (main only) | Pushes both images to GHCR with branch and immutable `sha-` tags, provenance and SBOM attestations |
 
 Trivy fails the build on any **fixable HIGH/CRITICAL** vulnerability in the OS or language packages of all three images. No ignore list is needed today.
 
-A [`Jenkinsfile`](Jenkinsfile) implements the same stages with Docker agents for teams that run Jenkins. Its e2e stage reuses the exact images that were scanned. [Dependabot](.github/dependabot.yml) proposes weekly updates for uv, Maven, Docker, Compose and Actions.
+A [`Jenkinsfile`](Jenkinsfile) runs the same checks with Docker agents for teams that run Jenkins (auth-service tests against a PostgreSQL sidecar, landing unit tests, manifests, alert rules, compose, lint). Its e2e stage reuses the exact images that were scanned. It passes the Jenkins declarative-pipeline linter. [Dependabot](.github/dependabot.yml) proposes weekly updates for uv, Maven, Docker, Compose and Actions.
 
 ## Testing
 
 | Suite | Count | Run | Highlights |
 |---|---|---|---|
-| auth-service | 79 unit/API tests, 96 % line coverage | `cd services/auth-service && uv run pytest` | RFC 7638 test vector, alg-none / HS256 confusion / foreign-key forgery, rotation + replay, absolute session expiry, throttling, admin authorization, log schema, migrations in sync |
-| orders-service | 49 JUnit tests | `cd services/orders-service && ./mvnw verify` | Full authorization matrix, real RS256 tokens against a JWKS stub (expired, wrong iss/aud, missing sub, HS256, unsigned, foreign key), **key rotation without restart**, ownership 404s, state machine, Flyway on real PostgreSQL |
-| end-to-end | 28 black-box tests | `cd tests/e2e && uv run pytest` (stack running) | Cross-service token verification, forged tokens, per-account throttling, session revocation, correlation IDs, HTTPS/HSTS, docs routing, landing page and docs under strict CSP, Prometheus targets and series, Grafana provisioning, edge 429s |
+| auth-service | 84 unit/API tests, 96 % line coverage on PostgreSQL | `cd services/auth-service && uv run pytest` (set `DATABASE_URL` for PostgreSQL) | RFC 7638 test vector, alg-none / HS256 confusion / foreign-key forgery, rotation + replay, replay and logout racing a rotation (real threads, PostgreSQL only), absolute session expiry, throttling, admin authorization, log schema, migrations in sync |
+| orders-service | 59 JUnit tests | `cd services/orders-service && ./mvnw verify` | Full authorization matrix, real RS256 tokens against a JWKS stub (expired, no `exp`, wrong iss/aud, missing sub, HS256, unsigned, foreign key), **key rotation without restart**, forged `kid`s cannot flood the JWKS, cached keys survive a JWKS outage, a hanging JWKS fails fast, `503` when keys are unavailable, ownership 404s, state machine, Flyway on real PostgreSQL |
+| end-to-end | 31 black-box tests | `cd tests/e2e && uv run pytest` (stack running) | Cross-service token verification, forged tokens, per-account throttling, session revocation, correlation IDs, HTTPS/HSTS, TLS 1.2 AEAD-only ciphers, docs routing, landing page and docs under strict CSP, Prometheus targets, every dashboard query returns data, Grafana provisioning, edge 429s |
+| landing | 11 unit tests | `cd services/landing && node --test` | Live-console wording for each failure, backoff, no overlapping rounds, pause and hidden-tab behaviour |
+| alert rules | 6 `promtool` test groups | see [`alerts.test.yml`](observability/prometheus/alerts.test.yml) | Every alert fires on the condition it describes |
 
 ## Deploying to Kubernetes
 
@@ -302,9 +309,9 @@ What the manifests include:
 - resource requests and limits, PDBs, CPU-based HPAs and topology spread
 - a one-off migration Job, so replicas never race on Django migrations; Flyway already uses an advisory lock
 - default-deny NetworkPolicies with explicit allows (ingress → services, orders → auth JWKS, monitoring → metrics ports, DNS, database)
-- a TLS Ingress
+- two TLS Ingresses that apply the gateway's edge controls as Traefik `Middleware` CRDs: security headers with HSTS, a 1 MiB body limit and per-IP rate limits (tighter on the auth routes)
 
-CI validates them with `kubeconform -strict`. They have not been applied to a live cluster as part of this repository's checks.
+CI validates them with `kubeconform -strict`, including the CRDs. They have not been applied to a live cluster as part of this repository's checks.
 
 ## Project structure
 
@@ -318,14 +325,14 @@ CI validates them with `kubeconform -strict`. They have not been applied to a li
 │   │   ├── tests/               #   pytest suite
 │   │   ├── gunicorn.conf.py     #   workers + multiprocess metrics server
 │   │   └── Dockerfile, pyproject.toml, uv.lock
-│   ├── landing/                 # static landing page + shared docs theme (nginx)
+│   ├── landing/                 # static landing page + shared docs theme (nginx), node unit tests
 │   └── orders-service/          # Spring Boot resource server
 │       ├── src/main/java/…/     #   config (security, JWT), catalog, order, web
 │       ├── src/main/resources/  #   application.yml, Flyway migrations
 │       ├── src/test/java/…/     #   WebMvc authz matrix, Testcontainers integration
 │       └── Dockerfile, pom.xml, mvnw
 ├── gateway/                     # Traefik static + dynamic (routes, TLS) config
-├── observability/               # Prometheus config + alerts, Grafana provisioning + dashboard
+├── observability/               # Prometheus config, alerts + promtool tests, Grafana provisioning + dashboard
 ├── deploy/
 │   ├── k8s/                     # Kustomize manifests
 │   └── postgres/                # per-service database bootstrap
@@ -339,7 +346,7 @@ CI validates them with `kubeconform -strict`. They have not been applied to a li
 
 ## Design decisions
 
-- **Offline JWT validation over gateway forward-auth.** Resource servers verify signatures locally against a cached JWKS, so the auth service is not on the hot path of every request and is not a single point of failure for reads. The cost is that a disabled account keeps a valid access token until it expires. That is why tokens last 15 minutes and refresh tokens are revoked immediately.
+- **Offline JWT validation over gateway forward-auth.** Resource servers verify signatures locally against a cached JWKS, so the auth service is not on the hot path of every request and is not a single point of failure for reads: if it goes down, cached keys keep verifying for as long as the tokens in circulation are valid. The cost is that a disabled account keeps a valid access token until it expires. That is why tokens last 15 minutes and refresh tokens are revoked immediately.
 - **Opaque, rotating refresh tokens instead of JWT refresh tokens.** Refresh tokens need server-side state anyway (revocation, reuse detection). Opaque random tokens stored as hashes make that state authoritative and keep a database leak harmless.
 - **`kid` = RFC 7638 thumbprint.** The key ID is derived from the key itself, so it can't drift from the key material, and rotation is "publish the new key, switch signing, retire the old key after max TTL".
 - **Scopes for APIs, roles for people.** The auth service maps roles to scopes in one table. Resource servers authorize on scopes and add a role check only where defence in depth is worth it (admin APIs).
