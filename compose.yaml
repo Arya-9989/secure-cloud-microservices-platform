@@ -181,6 +181,59 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    depends_on:
+      alertmanager: { condition: service_healthy }
+
+  # Routes Prometheus alerts by severity and category
+  # (observability/alertmanager/alertmanager.yml). Silences and notification state
+  # live in tmpfs: they reset with the container, which is fine locally.
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    <<: [*hardening, *logging]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --cluster.listen-address= # single instance: no gossip port
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./observability/alertmanager:/etc/alertmanager:ro
+    tmpfs:
+      - /alertmanager:size=16m,uid=65534,gid=65534
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      alert-sink: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { memory: 64m, cpus: "0.25" }
+
+  # Local stand-in for the pager and chat receivers: records every notification
+  # Alertmanager sends (GET /notifications) so delivery can be asserted.
+  alert-sink:
+    image: python:3.12.15-slim-trixie
+    <<: [*hardening, *logging]
+    user: "65534:65534"
+    command: ["python", "-I", "/app/sink.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    ports:
+      - "127.0.0.1:${ALERT_SINK_PORT:-9097}:8080"
+    volumes:
+      - ./observability/alert-sink/sink.py:/app/sink.py:ro
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { memory: 48m, cpus: "0.25" }
 
   grafana:
     image: grafana/grafana:13.2.4

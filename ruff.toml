@@ -1,7 +1,10 @@
-# Lint settings for repository-level helper scripts (scripts/).
+# Lint settings for repository-level helper scripts (scripts/, observability/).
 # Each Python project (services/auth-service, tests/e2e) has its own config.
 target-version = "py312"
 line-length = 100
 
 [lint]
 select = ["E", "W", "F", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[lint.per-file-ignores]
+"observability/**/test_*.py" = ["S101"] # pytest asserts

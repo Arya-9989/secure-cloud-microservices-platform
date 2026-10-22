@@ -1,0 +1,67 @@
+# Alertmanager routing for observability/prometheus/alerts.yml
+# (docs/adr/0002-alert-routing.md).
+#
+#   severity=critical  -> pager     (someone is woken up: users are affected now)
+#   category=security  -> security  (possible attack: the security channel, fast)
+#   everything else    -> platform  (team chat, business hours)
+#
+# Locally every receiver is a webhook into `alert-sink`, which records what it is
+# sent so the e2e suite can assert delivery. In production swap the webhook for
+# PagerDuty / Slack / email; keep secrets out of this file with the `*_file`
+# options (routing_key_file, api_url_file, url_file) pointing at mounted secrets.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: platform
+  # One notification per alert and affected service or route.
+  group_by: [alertname, job, router]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # First match wins. Security first: a replayed refresh token is a warning by
+    # severity, but it goes to the people who can act on it, quickly.
+    - receiver: security
+      matchers: [category="security"]
+      group_by: [alertname]
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+    - receiver: pager
+      matchers: [severity="critical"]
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+    - receiver: platform
+      matchers: [severity="warning"]
+
+inhibit_rules:
+  # A target that cannot be scraped explains its own error-rate and latency alerts.
+  - source_matchers: [alertname="TargetDown"]
+    target_matchers: [alertname=~"HighServerErrorRate|SlowRequests"]
+    equal: [job]
+  # While a service pages, its other warnings are noise. Both sides must carry a
+  # job label: `equal` treats a label missing on both alerts as equal, which would
+  # let any critical alert without a job (e.g. GatewayErrorRate) silence unrelated
+  # warnings. Security alerts are never inhibited.
+  - source_matchers: [severity="critical", job=~".+"]
+    target_matchers: [severity="warning", job=~".+", category!="security"]
+    equal: [job]
+
+receivers:
+  - name: pager
+    webhook_configs:
+      - url: http://alert-sink:8080/pager
+        send_resolved: true
+        max_alerts: 20
+  - name: security
+    webhook_configs:
+      - url: http://alert-sink:8080/security
+        send_resolved: true
+        max_alerts: 20
+  - name: platform
+    webhook_configs:
+      - url: http://alert-sink:8080/platform
+        send_resolved: true
+        max_alerts: 20

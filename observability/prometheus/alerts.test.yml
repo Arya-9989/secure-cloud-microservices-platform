@@ -67,7 +67,7 @@ tests:
       - eval_time: 3m
         alertname: RefreshTokenReuse
         exp_alerts:
-          - exp_labels: { severity: warning }
+          - exp_labels: { severity: warning, category: security }
             exp_annotations:
               summary: "Refresh token replay detected: a session was revoked (possible token theft)"
 
@@ -81,7 +81,7 @@ tests:
       - eval_time: 12m
         alertname: LoginBruteForce
         exp_alerts:
-          - exp_labels: { severity: warning }
+          - exp_labels: { severity: warning, category: security }
             exp_annotations: { summary: "Sustained failed or throttled logins" }
 
   - name: slow p95 for 10 minutes

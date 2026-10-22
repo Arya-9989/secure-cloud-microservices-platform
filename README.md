@@ -116,6 +116,7 @@ sequenceDiagram
 | **gateway** | Traefik 3.7 (file provider, no Docker socket) | Single entry point, TLS, routing, rate limiting, headers, access logs | 8080 HTTP · 8443 HTTPS · 8082 metrics |
 | **postgres** | PostgreSQL 17 | Separate database and least-privilege role per service | 5432 (internal only) |
 | **prometheus** / **grafana** | Prometheus 3.15, Grafana 13.2 | Metrics, alert rules, provisioned dashboard | 9090 / 3000 (localhost only) |
+| **alertmanager** / **alert-sink** | Alertmanager 0.34, a standard-library Python receiver | Routes alerts by severity and category; the sink records what is delivered (local stand-in for a pager) | 9093 / 9097 (localhost only) |
 | **jaeger** (profile `tracing`) | Jaeger 2.22 (in-memory) | Distributed traces over OTLP/HTTP, Grafana datasource | 16686 UI (localhost only) |
 
 ## Security model
@@ -171,9 +172,11 @@ docker compose up --build --wait           # ~2-3 min on first build
 | https://localhost:8443 | Same routes over TLS (self-signed locally) |
 | http://localhost:3000 | Grafana (user `admin`, password `GRAFANA_ADMIN_PASSWORD` in `.env`) |
 | http://localhost:9090 | Prometheus (targets, alert rules) |
+| http://localhost:9093 | Alertmanager (active alerts, silences) |
+| http://localhost:9097/notifications | Notifications Alertmanager delivered (local receiver) |
 | http://localhost:16686 | Jaeger (only with tracing on, see [Tracing](#tracing)) |
 
-Host ports come from `.env` (`GATEWAY_HTTP_PORT`, `GATEWAY_HTTPS_PORT`, `PROMETHEUS_PORT`, `GRAFANA_PORT`) or the shell environment. `demo_traffic.py` and the end-to-end suite follow the same settings.
+Host ports come from `.env` (`GATEWAY_HTTP_PORT`, `GATEWAY_HTTPS_PORT`, `PROMETHEUS_PORT`, `GRAFANA_PORT`, `ALERTMANAGER_PORT`, `ALERT_SINK_PORT`, `JAEGER_PORT`) or the shell environment. `demo_traffic.py` and the end-to-end suite follow the same settings.
 
 Try it:
 
@@ -263,7 +266,15 @@ Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts
 
 <sub>Provisioned Grafana dashboard after running `scripts/demo_traffic.py`. Refresh-token replays and throttled logins are generated on purpose.</sub>
 
-- **Alerts:** six [Prometheus rules](observability/prometheus/alerts.yml) cover target down, a service's own 5xx ratio > 5 %, a route's 5xx ratio at the gateway > 5 % (which includes a service that is down), p95 > 1 s, refresh-token replay and sustained failed logins. Each has a `promtool` unit test ([`alerts.test.yml`](observability/prometheus/alerts.test.yml)). They are visible under Prometheus → Alerts. Routing them to a pager is listed as future work.
+- **Alerts:** six [Prometheus rules](observability/prometheus/alerts.yml) cover target down, a service's own 5xx ratio > 5 %, a route's 5xx ratio at the gateway > 5 % (which includes a service that is down), p95 > 1 s, refresh-token replay and sustained failed logins. Each has a `promtool` unit test ([`alerts.test.yml`](observability/prometheus/alerts.test.yml)). Prometheus sends them to Alertmanager, which routes them ([config](observability/alertmanager/alertmanager.yml), [ADR 0002](docs/adr/0002-alert-routing.md)):
+
+  | Labels | Receiver | Wait / repeat |
+  |---|---|---|
+  | `category=security` (refresh-token replay, brute force) | `security` | 10 s / 1 h, one notification per alert name |
+  | `severity=critical` (target down, gateway 5xx) | `pager` | 10 s / 1 h |
+  | anything else | `platform` (team chat) | 30 s / 4 h |
+
+  `TargetDown` inhibits the same job's error-rate and latency warnings, and a critical alert inhibits that job's other warnings. Security alerts are never inhibited, and an alert without a `job` label can't inhibit anything (Alertmanager treats a label missing on both sides as equal). Locally every receiver is a webhook into `alert-sink`, which records each notification at `GET /notifications`. In production, swap in PagerDuty or Slack with `routing_key_file` / `api_url_file` pointing at mounted secrets. `amtool` validates the config and unit-tests the routing tree in CI ([`routes.test.sh`](observability/alertmanager/routes.test.sh)), and the e2e suite replays a refresh token and waits for the page.
 - **Logs:** Every component writes one JSON object per line with a shared schema (`@timestamp`, `level`, `logger_name`, `message`, `service`, `request_id`, `user_id`). Each request produces exactly one access-log line with route, status and duration.
 - **Correlation:** A client-supplied `X-Request-ID` (validated: 8–128 safe characters) is kept, and otherwise one is generated. The ID is echoed in the response, attached to every log line and problem response, and recorded by the gateway access log. The `Authorization` header is redacted there. With tracing on, every log line also carries `trace_id` and `span_id`.
 
@@ -300,7 +311,7 @@ docker compose up --build --wait
 | `auth-service` | Locked install, ruff, `mypy --strict`, pytest with coverage **against PostgreSQL**, `pip-audit`, image build, Trivy scan |
 | `landing` | Script syntax check, live-console unit tests (`node --test`), image build (runs `nginx -t`), Trivy scan |
 | `orders-service` | Spotless, `-Werror` compile, JUnit + Testcontainers (real PostgreSQL), image build, Trivy scan |
-| `platform-config` | `kustomize` + `kubeconform -strict` (with Traefik CRD schemas), `promtool` config check and alert-rule tests, compose validation, lint of e2e tests and scripts, type-check of the e2e tests |
+| `platform-config` | `kustomize` + `kubeconform -strict` (with Traefik CRD schemas), `promtool` config check and alert-rule tests, `amtool check-config` and routing-tree tests, Jaeger config validation, compose validation, lint of e2e tests, scripts and the alert sink, type-checks, alert-sink unit tests |
 | `e2e` | `docker compose up --wait` of the full stack, then the black-box suite through the gateway; logs dumped on failure |
 | `publish` (main only) | Pushes both images to GHCR with branch and immutable `sha-` tags, provenance and SBOM attestations |
 
@@ -317,6 +328,7 @@ A [`Jenkinsfile`](Jenkinsfile) runs the same checks with Docker agents for teams
 | end-to-end | 31 black-box tests | `cd tests/e2e && uv run pytest` (stack running) | Cross-service token verification, forged tokens, per-account throttling, session revocation, correlation IDs, HTTPS/HSTS, TLS 1.2 AEAD-only ciphers, docs routing, landing page and docs under strict CSP, Prometheus targets, every dashboard query returns data, Grafana provisioning, edge 429s |
 | landing | 24 unit tests | `cd services/landing && node --test` | Live-console wording for each failure, backoff, no overlapping rounds, pause and hidden-tab behaviour, sparkline geometry (outages stay visible), no inline script or style, motion only animates opacity, transforms and stroke and is skipped under reduced motion, request-flow copy present without JavaScript |
 | alert rules | 6 `promtool` test groups | see [`alerts.test.yml`](observability/prometheus/alerts.test.yml) | Every alert fires on the condition it describes |
+| alert routing | 8 `amtool` route cases, 10 sink unit tests | [`routes.test.sh`](observability/alertmanager/routes.test.sh), `uv run --project tests/e2e pytest observability/alert-sink` | Each rule reaches its receiver; the sink rejects malformed and oversized payloads |
 
 ## Deploying to Kubernetes
 
@@ -396,7 +408,6 @@ CI validates them with `kubeconform -strict`, including the CRDs. They have not 
 
 These are **not implemented** yet:
 
-- Alertmanager routing for the existing alert rules.
 - OAuth2 client-credentials grant for service-to-service calls, and DPoP / mTLS-bound access tokens.
 - Signing keys in a KMS/HSM, with automated rotation driven by `JWT_ADDITIONAL_PUBLIC_KEY_FILES`.
 - Idempotency keys for `POST /api/v1/orders`.

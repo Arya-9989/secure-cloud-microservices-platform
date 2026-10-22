@@ -17,6 +17,7 @@ pipeline {
         UV_IMAGE    = 'ghcr.io/astral-sh/uv:0.13.5-python3.12-trixie-slim'
         PROM_IMAGE  = 'prom/prometheus:v3.15.0'
         JAEGER_IMAGE = 'jaegertracing/jaeger:2.22.0'
+        ALERTMANAGER_IMAGE = 'prom/alertmanager:v0.34.1'
         PG_IMAGE    = 'postgres:17.11-alpine'
         CRD_SCHEMAS = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
         REGISTRY    = 'ghcr.io/arya-9989/secure-cloud-microservices-platform'
@@ -103,14 +104,20 @@ pipeline {
                             done
                             docker run --rm -v "$PWD/observability/jaeger:/etc/jaeger:ro" \
                                 "$JAEGER_IMAGE" validate --config /etc/jaeger/config.yaml
+                            docker run --rm -v "$PWD/observability/alertmanager:/etc/alertmanager:ro" \
+                                --entrypoint amtool "$ALERTMANAGER_IMAGE" check-config /etc/alertmanager/alertmanager.yml
+                            docker run --rm -v "$PWD/observability/alertmanager:/etc/alertmanager:ro" \
+                                --entrypoint sh "$ALERTMANAGER_IMAGE" /etc/alertmanager/routes.test.sh
                             python3 scripts/init_env.py --force
                             docker compose config --quiet
                         '''
                         sh '''
                             docker run --rm -v "$PWD:/src" -w /src -e UV_CACHE_DIR=/tmp/uv-cache "$UV_IMAGE" sh -c '
                                 uv sync --locked --project tests/e2e &&
-                                uv run --project tests/e2e ruff check tests/e2e scripts &&
-                                uv run --project tests/e2e ruff format --check tests/e2e scripts &&
+                                uv run --project tests/e2e ruff check tests/e2e scripts observability &&
+                                uv run --project tests/e2e ruff format --check tests/e2e scripts observability &&
+                                uv run --project tests/e2e mypy --strict observability/alert-sink &&
+                                uv run --project tests/e2e pytest -p no:cacheprovider --rootdir observability/alert-sink observability/alert-sink &&
                                 cd tests/e2e && uv run mypy .'
                         '''
                     }
@@ -145,6 +152,8 @@ pipeline {
                         PROMETHEUS_PORT      = '19090'
                         GRAFANA_PORT         = '13000'
                         JAEGER_PORT          = '17686'
+                        ALERTMANAGER_PORT    = '19093'
+                        ALERT_SINK_PORT      = '19097'
                         COMPOSE_PROFILES     = 'tracing'
                         TRACING_ENABLED      = 'true'
                     }
@@ -156,6 +165,7 @@ pipeline {
                                 -e GATEWAY_URL=http://localhost:18080 -e GATEWAY_HTTPS_URL=https://localhost:18443 \
                                 -e PROMETHEUS_URL=http://localhost:19090 -e GRAFANA_URL=http://localhost:13000 \
                                 -e JAEGER_URL=http://localhost:17686 -e TRACING_ENABLED=true \
+                                -e ALERTMANAGER_URL=http://localhost:19093 -e ALERT_SINK_URL=http://localhost:19097 \
                                 "$UV_IMAGE" uv run --locked pytest -v --junitxml=reports/junit.xml
                         '''
                     }
