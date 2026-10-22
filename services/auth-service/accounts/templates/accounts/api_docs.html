@@ -8,7 +8,6 @@
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
   <link rel="preload" href="/assets/fonts/inter-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/assets/fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   {# Theme assets are served by the landing service through the gateway; without them the page falls back to stock Swagger UI. #}
   <script src="/assets/docs-theme.js"></script>
   <link rel="stylesheet" href="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui.css' %}">
@@ -16,7 +15,7 @@
   <link rel="stylesheet" href="/assets/docs.css">
 </head>
 <body>
-  <a class="skip" href="#swagger-ui">Skip to the API reference</a>
+  <a class="skip" href="#main">Skip to the API reference</a>
   <header class="docs-bar">
     <div class="docs-bar-inner">
       <a class="docs-brand" href="/" aria-label="Secure Platform, home">
@@ -27,12 +26,25 @@
         <a href="{% url 'docs' %}" aria-current="page">Auth API</a>
         <a href="/docs/orders/swagger-ui.html">Orders API</a>
       </nav>
-      <a class="docs-json" href="{% url 'openapi-schema' %}">OpenAPI document</a>
     </div>
   </header>
-  <div id="swagger-ui" data-openapi-url="{% url 'openapi-schema' %}" tabindex="-1">
-    <noscript><p class="docs-noscript">The interactive reference needs JavaScript. The OpenAPI document is at <a href="{% url 'openapi-schema' %}">{% url 'openapi-schema' %}</a>.</p></noscript>
-  </div>
+  <main id="main" class="docs-main" tabindex="-1">
+    {# Server-rendered so it paints before the Swagger bundle runs; docs.css hides Swagger's own info block. #}
+    <section class="docs-hero" aria-labelledby="docs-title">
+      <p class="docs-eyebrow"><span class="docs-dot" aria-hidden="true"></span>auth-service</p>
+      <h1 id="docs-title" class="docs-title">Auth API reference.</h1>
+      <p class="docs-lead">Register, log in and rotate refresh tokens. Access tokens are RS256 JWTs that any service can verify against the public keys at <code>/.well-known/jwks.json</code>.</p>
+      <ul class="docs-facts" role="list">
+        <li>Bearer JWT, RS256</li>
+        <li>Errors as <code>application/problem+json</code></li>
+        <li>Rate limited per IP and per account</li>
+      </ul>
+      <a class="docs-pill" href="{% url 'openapi-schema' %}">OpenAPI document</a>
+    </section>
+    <div id="swagger-ui" data-openapi-url="{% url 'openapi-schema' %}">
+      <noscript><p class="docs-noscript">The interactive reference needs JavaScript. The OpenAPI document above describes every operation.</p></noscript>
+    </div>
+  </main>
   <script src="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui-bundle.js' %}" defer></script>
   <script src="{% static 'accounts/api-docs.js' %}" defer></script>
 </body>

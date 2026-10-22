@@ -123,6 +123,31 @@ def test_api_docs_page_is_themed_and_runs_without_inline_script(api: APIClient) 
     assert "unsafe" not in csp
 
 
+def test_api_docs_page_renders_its_title_without_javascript(api: APIClient) -> None:
+    # The heading and lead are in the HTML, so they paint before the 1.5 MB Swagger
+    # bundle runs (they are the page's LCP element), and the whole reference sits in a
+    # <main> landmark (axe: region).
+    html = api.get("/docs/auth/").content.decode()
+
+    main = re.search(r"<main\b[^>]*>(.*)</main>", html, re.S)
+    assert main is not None, "the reference must live in a <main> landmark"
+    assert re.search(r"<h1\b[^>]*>Auth API reference\.</h1>", main.group(1))
+    assert 'id="swagger-ui"' in main.group(1)
+    assert 'href="/docs/auth/openapi.json"' in main.group(1)
+
+
+def test_openapi_operations_describe_themselves(api: APIClient) -> None:
+    schema = api.get("/docs/auth/openapi.json", {"format": "json"}).json()
+
+    operations = [op for path in schema["paths"].values() for op in path.values()]
+    descriptions = {op["operationId"]: op.get("description", "") for op in operations}
+    assert all("Credential endpoints" not in text for text in descriptions.values()), (
+        "an implementation comment leaked into the public API reference"
+    )
+    jwks = next(op for op in operations if op["operationId"].startswith(".well_known_jwks"))
+    assert "JWK" in jwks["description"]
+
+
 def test_every_response_carries_the_content_security_policy(api: APIClient) -> None:
     response = api.get("/healthz")
 

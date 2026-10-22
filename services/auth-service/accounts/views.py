@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 
 
 class PublicEndpoint(APIView):
-    """Credential endpoints ignore any Authorization header the client sends."""
+    # Credential endpoints ignore any Authorization header the client sends. (A comment,
+    # not a docstring: drf-spectacular would publish a docstring as every subclass's
+    # operation description.)
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
@@ -51,6 +53,10 @@ class PublicEndpoint(APIView):
 @extend_schema(
     tags=["auth"],
     summary="Create a customer account (role USER; rate limited per IP)",
+    description=(
+        "Passwords need at least 12 characters and must not be common or all digits. "
+        "The new account always has the role USER."
+    ),
     request=RegisterSerializer,
     responses={201: UserSerializer},
 )
@@ -68,6 +74,12 @@ class RegisterView(PublicEndpoint):
 @extend_schema(
     tags=["auth"],
     summary="Log in with email and password (rate limited per IP and per account)",
+    description=(
+        "Returns an RS256 access token (15 minutes by default) and an opaque, single-use "
+        "refresh token. "
+        "Wrong email and wrong password fail identically. While an account is throttled, "
+        "even the right password is refused with 429."
+    ),
     request=LoginSerializer,
     responses={
         200: TokenResponseSerializer,
@@ -102,6 +114,11 @@ class TokenView(PublicEndpoint):
 @extend_schema(
     tags=["auth"],
     summary="Rotate a refresh token; reusing an old token revokes the whole session",
+    description=(
+        "Each refresh token works once and is exchanged for a new pair. Presenting a token "
+        "that was already rotated is treated as theft: every token of that session is "
+        "revoked and the caller gets 401."
+    ),
     request=RefreshSerializer,
     responses={200: TokenResponseSerializer, 401: OpenApiResponse(description="Invalid token")},
 )
@@ -121,6 +138,7 @@ class TokenRefreshView(PublicEndpoint):
 @extend_schema(
     tags=["auth"],
     summary="Revoke the session that owns the given refresh token",
+    description="Always 204, so the response does not reveal whether the token was valid.",
     request=RefreshSerializer,
     responses={204: None},
 )
@@ -145,6 +163,10 @@ class MeView(APIView):
 @extend_schema(
     tags=["jwks"],
     summary="JSON Web Key Set used by resource servers to verify access tokens",
+    description=(
+        "Public RS256 keys as an RFC 7517 JWK Set. Each kid is the key's RFC 7638 "
+        "thumbprint. Cacheable for 5 minutes."
+    ),
     responses={200: OpenApiResponse(description="RFC 7517 JWK Set")},
 )
 class JWKSView(PublicEndpoint):

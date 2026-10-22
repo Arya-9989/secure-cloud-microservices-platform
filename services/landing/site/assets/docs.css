@@ -160,18 +160,6 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px var(--line);
 }
 
-.docs-json {
-  color: var(--accent);
-  font-size: 13px;
-  letter-spacing: -0.01em;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.docs-json:hover {
-  text-decoration: underline;
-}
-
 @media (pointer: coarse) {
   .docs-switch a {
     min-height: 44px;
@@ -179,8 +167,7 @@ body {
 }
 
 @media (max-width: 600px) {
-  .docs-brand span,
-  .docs-json {
+  .docs-brand span {
     display: none;
   }
 
@@ -233,13 +220,6 @@ body {
   color: var(--text-2);
 }
 
-#swagger-ui .swagger-ui .info .info__license,
-#swagger-ui .swagger-ui .info .info__license a,
-#swagger-ui .swagger-ui .info .info__license__url {
-  color: var(--text-2);
-  font-size: 13px;
-}
-
 #swagger-ui .swagger-ui :is(svg.arrow, .btn.authorize svg, .authorization__btn svg, .copy-to-clipboard svg, .opblock-control-arrow svg, .expand-operation svg) {
   color: var(--text-2);
 }
@@ -248,90 +228,126 @@ body {
   color: var(--accent);
 }
 
-/* Info header */
+/* ------------------------------------------------------------------ hero
+ * Server-rendered title and lead. They paint with the HTML (the page's LCP
+ * element) instead of after the Swagger bundle, so Swagger's own info block,
+ * which repeats them, is hidden. */
+
 #swagger-ui .swagger-ui .information-container {
-  padding: 0;
+  display: none;
 }
 
-/* Below the content width the wrapper loses its gutter; restore it. */
-@media (max-width: 1112px) {
-  #swagger-ui .swagger-ui .information-container {
-    padding: 0 16px;
-  }
+.docs-main:focus {
+  outline: none;
 }
 
-#swagger-ui .swagger-ui .info {
-  margin: 64px 0 40px;
+.docs-hero {
+  width: min(100% - 32px, 1048px);
+  margin: 0 auto;
+  padding: 72px 0 40px;
 }
 
-#swagger-ui .swagger-ui .info .title {
-  display: flex;
-  flex-wrap: wrap;
+.docs-eyebrow {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: clamp(36px, 5vw, 48px);
-  font-weight: 600;
-  line-height: 1.08;
-  letter-spacing: -0.003em;
-}
-
-#swagger-ui .swagger-ui .info .title small {
-  top: 0;
-  margin: 0;
-  padding: 2px 8px;
-  border-radius: 980px;
-  background: var(--surface-2);
-  vertical-align: middle;
-}
-
-#swagger-ui .swagger-ui .info .title small pre {
-  margin: 0;
+  gap: 8px;
+  margin: 0 0 12px;
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-#swagger-ui .swagger-ui .info .title small.version-stamp {
-  background: var(--accent-soft);
-}
-
-#swagger-ui .swagger-ui .info .title small.version-stamp pre {
-  color: var(--accent);
-}
-
-#swagger-ui .swagger-ui .info :is(.description, .base-url),
-#swagger-ui .swagger-ui .info .description :is(p, li) {
-  max-width: 760px;
-  color: var(--text-2);
-  font-size: 19px;
-  line-height: 1.42;
-  letter-spacing: 0.012em;
-}
-
-#swagger-ui .swagger-ui .info .base-url {
-  margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 13px;
   letter-spacing: 0;
 }
 
-#swagger-ui .swagger-ui .info a,
-#swagger-ui .swagger-ui .info .link {
-  color: var(--accent);
+.docs-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
-#swagger-ui .swagger-ui .info :is(code, .description code) {
-  padding: 0;
-  border-radius: 0;
-  background: none;
+.docs-title {
+  margin: 0;
   color: var(--text);
-  font-size: 0.84em;
+  font-size: clamp(40px, 6vw, 56px);
+  font-weight: 600;
+  line-height: 1.07;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
 }
 
-#swagger-ui .swagger-ui .info hgroup.main a {
-  font-size: 13px;
+.docs-lead {
+  max-width: 760px;
+  margin: 16px 0 0;
+  color: var(--text-2);
+  font-size: clamp(19px, 2.2vw, 21px);
+  line-height: 1.4;
+  letter-spacing: 0.011em;
+  text-wrap: pretty;
+}
+
+.docs-lead code,
+.docs-facts code {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  letter-spacing: 0;
+}
+
+.docs-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+  font-size: 14px;
+  letter-spacing: -0.016em;
+}
+
+.docs-facts li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docs-facts li::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.docs-facts code + code {
+  margin-left: -2px;
+}
+
+.docs-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 28px;
+  padding: 0 20px;
+  border: 1px solid var(--accent);
+  border-radius: 980px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.016em;
+  text-decoration: none;
+  transition: background-color 320ms var(--ease), color 320ms var(--ease);
+}
+
+.docs-pill:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+@media (max-width: 600px) {
+  .docs-hero {
+    padding: 48px 0 32px;
+  }
 }
 
 /* Servers + Authorize */
@@ -618,17 +634,24 @@ body {
   font-size: 12.5px;
 }
 
-/* Swagger draws the copy icon in white, so it needs a solid chip in both themes. */
+/* Swagger draws the copy glyph in white. Dark theme: a raised chip behind it.
+ * Light theme: a light chip with the glyph inverted to the secondary text grey. */
 #swagger-ui .swagger-ui .copy-to-clipboard {
   border-radius: 8px;
-  background: #58585d;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+#swagger-ui .swagger-ui .copy-to-clipboard button {
+  filter: invert(0.65);
 }
 
 :root[data-theme="dark"] #swagger-ui .swagger-ui .copy-to-clipboard {
   background: var(--surface-3);
+  box-shadow: none;
 }
 
-#swagger-ui .swagger-ui .copy-to-clipboard button {
+:root[data-theme="dark"] #swagger-ui .swagger-ui .copy-to-clipboard button {
   filter: none;
 }
 
@@ -804,12 +827,8 @@ body {
 }
 
 .docs-noscript {
-  width: min(100% - 32px, 760px);
-  margin: 64px auto;
+  width: min(100% - 32px, 1048px);
+  margin: 0 auto 64px;
   color: var(--text-2);
   font-size: 17px;
-}
-
-.docs-noscript a {
-  color: var(--accent);
 }

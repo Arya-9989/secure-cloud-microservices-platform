@@ -27,6 +27,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter.CrossOriginOpenerPolicy;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 /**
@@ -71,7 +72,8 @@ public class SecurityConfig {
         .headers(
             h ->
                 h.contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY))
-                    .referrerPolicy(r -> r.policy(ReferrerPolicy.NO_REFERRER)))
+                    .referrerPolicy(r -> r.policy(ReferrerPolicy.NO_REFERRER))
+                    .crossOriginOpenerPolicy(c -> c.policy(CrossOriginOpenerPolicy.SAME_ORIGIN)))
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers(EndpointRequest.to("health", "info", "prometheus"))
