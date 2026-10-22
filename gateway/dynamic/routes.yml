@@ -27,7 +27,7 @@ http:
       entryPoints: [web, websecure]
       rule: >-
         PathPrefix(`/api/v1/orders`) || PathPrefix(`/api/v1/products`) ||
-        PathPrefix(`/api/v1/admin/orders`) ||
+        PathPrefix(`/api/v1/admin/orders`) || PathPrefix(`/api/v1/fulfilment/`) ||
         Path(`/.well-known/oauth-protected-resource`)
       middlewares: [security-headers, body-limit, api-rate-limit]
       service: orders-service

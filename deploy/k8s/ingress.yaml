@@ -46,4 +46,5 @@ spec:
           - { path: /api/v1/orders, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
           - { path: /api/v1/products, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
           - { path: /api/v1/admin/orders, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
+          - { path: /api/v1/fulfilment, pathType: Prefix, backend: { service: { name: orders-service, port: { name: http } } } }
           - { path: /.well-known/oauth-protected-resource, pathType: Exact, backend: { service: { name: orders-service, port: { name: http } } } }

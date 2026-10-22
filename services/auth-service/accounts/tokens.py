@@ -81,6 +81,38 @@ def issue_access_token(user: User, now: datetime | None = None) -> str:
     )
 
 
+def issue_client_access_token(
+    client_id: str,
+    scopes: list[str],
+    audience: str,
+    jkt: str | None,
+    now: datetime | None = None,
+) -> str:
+    """A short-lived token for a service (client credentials), bound to a DPoP key if given.
+
+    It carries no ``roles``: resource servers use that to tell a person from a
+    machine, and a client token can never act as a customer.
+    """
+    now = now or timezone.now()
+    keys = get_key_set()
+    claims: dict[str, Any] = {
+        "iss": settings.JWT_ISSUER,
+        "aud": audience,
+        "sub": client_id,
+        "client_id": client_id,
+        "scope": " ".join(scopes),
+        "iat": int(now.timestamp()),
+        "nbf": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=settings.CLIENT_TOKEN_TTL_SECONDS)).timestamp()),
+        "jti": str(uuid.uuid4()),
+    }
+    if jkt is not None:
+        claims["cnf"] = {"jkt": jkt}  # RFC 9449 section 6: the token is bound to this key
+    return jwt.encode(
+        claims, keys.signing.private_key, algorithm=ALGORITHM, headers={"kid": keys.signing.kid}
+    )
+
+
 def decode_access_token(token: str) -> dict[str, Any]:
     """Verify signature, algorithm, issuer, audience and expiry of an access token."""
     keys = get_key_set()

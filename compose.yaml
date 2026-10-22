@@ -73,11 +73,16 @@ services:
         python manage.py ensure_signing_key /keys/jwt-private-key.pem &&
         python manage.py migrate --noinput &&
         python manage.py createcachetable &&
-        python manage.py bootstrap_admin
+        python manage.py bootstrap_admin &&
+        python manage.py ensure_oauth_client fulfilment --name "Warehouse fulfilment"
+        --scope orders:fulfil --audience urn:secure-platform:orders-service
+        --secret-env FULFILMENT_CLIENT_SECRET
     environment:
       <<: *auth-env
       AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
       AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:?}
+      # The warehouse's client credentials (docs/adr/0006-client-credentials-and-dpop.md).
+      FULFILMENT_CLIENT_SECRET: ${FULFILMENT_CLIENT_SECRET:?run python scripts/init_env.py first}
     volumes:
       - jwt-keys:/keys
     networks: [backend]
@@ -116,6 +121,8 @@ services:
       PLATFORM_SECURITY_JWK_SET_URI: http://auth-service:8000/.well-known/jwks.json
       MANAGEMENT_TRACING_EXPORT_ENABLED: ${TRACING_ENABLED:-false}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      # DPoP nonces must verify on every replica, so they share this HMAC key (base64url).
+      PLATFORM_SECURITY_DPOP_NONCE_SECRET: ${DPOP_NONCE_SECRET:?run python scripts/init_env.py first}
     tmpfs:
       - /tmp:size=64m,uid=65532,gid=65532
     networks: [backend]

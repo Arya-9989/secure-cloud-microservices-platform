@@ -44,3 +44,27 @@ class RefreshThrottle(SimpleRateThrottle):
 
     def get_cache_key(self, request: Request, view: Any) -> str:
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class ClientTokenIPThrottle(SimpleRateThrottle):
+    """Token requests per source IP, whatever client they claim to be."""
+
+    scope = "client_token_ip"
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class ClientTokenClientThrottle(SimpleRateThrottle):
+    """Token requests per claimed client id: bounds secret guessing from many IPs."""
+
+    scope = "client_token_client"
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        from .oauth import OAuthError, parse_basic_credentials
+
+        try:
+            client_id, _ = parse_basic_credentials(request.headers.get("Authorization", ""))
+        except OAuthError:
+            return None  # the view rejects it anyway
+        return self.cache_format % {"scope": self.scope, "ident": client_id.lower()}

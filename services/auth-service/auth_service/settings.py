@@ -109,6 +109,16 @@ ACCESS_TOKEN_TTL_SECONDS = env_int("ACCESS_TOKEN_TTL_SECONDS", 900)
 REFRESH_TOKEN_TTL_SECONDS = env_int("REFRESH_TOKEN_TTL_SECONDS", 7 * 24 * 3600)
 REFRESH_SESSION_MAX_SECONDS = env_int("REFRESH_SESSION_MAX_SECONDS", 30 * 24 * 3600)
 
+# OAuth 2.0 client credentials for services (docs/adr/0006-client-credentials-and-dpop.md).
+# Resource identifiers (RFC 8707) a client may request a token for; each becomes `aud`.
+OAUTH_RESOURCES = env_list("OAUTH_RESOURCES", "urn:secure-platform:orders-service")
+CLIENT_TOKEN_TTL_SECONDS = env_int("CLIENT_TOKEN_TTL_SECONDS", 300)
+# DPoP (RFC 9449): how old a proof may be, how long a server nonce stays valid, and
+# whether proofs must carry one (makes pre-computed proofs useless).
+DPOP_PROOF_MAX_AGE_SECONDS = env_int("DPOP_PROOF_MAX_AGE_SECONDS", 60)
+DPOP_NONCE_LIFETIME_SECONDS = env_int("DPOP_NONCE_LIFETIME_SECONDS", 300)
+DPOP_REQUIRE_NONCE = env_bool("DPOP_REQUIRE_NONCE", default=True)
+
 # --------------------------------------------------------------------------- REST framework
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["accounts.authentication.JWTAuthentication"],
@@ -128,6 +138,8 @@ REST_FRAMEWORK = {
         "login_account": env_str("LOGIN_RATE_PER_ACCOUNT", "5/min"),
         "register": env_str("REGISTER_RATE_PER_IP", "10/hour"),
         "refresh": env_str("REFRESH_RATE_PER_IP", "60/min"),
+        "client_token_ip": env_str("CLIENT_TOKEN_RATE_PER_IP", "60/min"),
+        "client_token_client": env_str("CLIENT_TOKEN_RATE_PER_CLIENT", "30/min"),
     },
 }
 

@@ -1,6 +1,8 @@
 # Required secret (not committed):
 #   orders-service-secrets: SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME,
-#                           SPRING_DATASOURCE_PASSWORD
+#                           SPRING_DATASOURCE_PASSWORD,
+#                           PLATFORM_SECURITY_DPOP_NONCE_SECRET (base64url, >= 32 bytes;
+#                           shared by every replica so DPoP nonces verify anywhere)
 # Flyway migrates on startup; it takes a PostgreSQL advisory lock, so several
 # replicas starting at once are safe.
 apiVersion: v1

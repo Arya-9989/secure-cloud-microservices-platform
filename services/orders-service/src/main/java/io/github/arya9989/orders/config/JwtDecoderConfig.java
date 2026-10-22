@@ -1,11 +1,13 @@
 package io.github.arya9989.orders.config;
 
+import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.KeySourceException;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSelector;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.jwk.source.RateLimitReachedException;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
 import com.nimbusds.jose.proc.SecurityContext;
 import io.micrometer.observation.ObservationRegistry;
 import java.net.MalformedURLException;
@@ -29,7 +31,12 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
  *
  * <ul>
  *   <li>Only RS256 is accepted, so a token cannot downgrade itself to {@code none} or an HMAC
- *       algorithm. {@code iss}, {@code aud}, {@code sub} and {@code exp} are required.
+ *       algorithm. {@code iss}, {@code aud}, {@code sub} and {@code exp} are required. The {@code
+ *       aud} must be the platform API (tokens issued to people) or this service's own resource
+ *       identifier (tokens issued to services); which APIs each may call is decided in {@link
+ *       SecurityConfig}.
+ *   <li>The JOSE {@code typ} must be {@code JWT}, {@code at+jwt} or absent. Spring checks no type
+ *       by default, so a DPoP proof ({@code dpop+jwt}) is never mistaken for an access token.
  *   <li>The key set is cached ({@code cacheTtl}). A token with an unknown {@code kid} triggers a
  *       refetch, which is what makes signing-key rotation on the auth service transparent here, but
  *       refetches are rate limited so forged key ids cannot make every request call the auth
@@ -47,6 +54,10 @@ public class JwtDecoderConfig {
   /** JWK sets larger than this are rejected; ours is a few hundred bytes per key. */
   static final int JWKS_SIZE_LIMIT_BYTES = 64 * 1024;
 
+  /** RFC 9068 {@code at+jwt}, plain {@code JWT} (our issuer's default) or no {@code typ}. */
+  static final DefaultJOSEObjectTypeVerifier<SecurityContext> ACCESS_TOKEN_TYPES =
+      new DefaultJOSEObjectTypeVerifier<>(JOSEObjectType.JWT, new JOSEObjectType("at+jwt"), null);
+
   @Bean
   JwtDecoder jwtDecoder(
       PlatformSecurityProperties properties, ObjectProvider<ObservationRegistry> observations) {
@@ -58,6 +69,7 @@ public class JwtDecoderConfig {
     NimbusJwtDecoder decoder =
         NimbusJwtDecoder.withJwkSource(jwkSource(properties, observations))
             .jwsAlgorithm(SignatureAlgorithm.RS256)
+            .jwtProcessorCustomizer(processor -> processor.setJWSTypeVerifier(ACCESS_TOKEN_TYPES))
             .build();
     decoder.setJwtValidator(tokenValidator(properties));
     return decoder;
@@ -92,7 +104,11 @@ public class JwtDecoderConfig {
             timestamps,
             new JwtIssuerValidator(properties.issuer()),
             new JwtClaimValidator<List<String>>(
-                JwtClaimNames.AUD, aud -> aud != null && aud.contains(properties.audience())),
+                JwtClaimNames.AUD,
+                aud ->
+                    aud != null
+                        && (aud.contains(properties.audience())
+                            || aud.contains(properties.resource()))),
             new JwtClaimValidator<String>(
                 JwtClaimNames.SUB, sub -> sub != null && !sub.isBlank())));
   }

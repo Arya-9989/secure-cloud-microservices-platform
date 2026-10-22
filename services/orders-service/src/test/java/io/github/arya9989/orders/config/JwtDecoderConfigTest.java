@@ -45,9 +45,12 @@ class JwtDecoderConfigTest {
         new PlatformSecurityProperties(
             TestTokens.ISSUER,
             TestTokens.AUDIENCE,
+            TestTokens.RESOURCE,
             URI.create(jwks.jwkSetUri()),
             Duration.ofSeconds(30),
-            settings),
+            settings,
+            new PlatformSecurityProperties.Dpop(
+                Duration.ofSeconds(60), Duration.ofMinutes(5), null, true)),
         ObservationRegistry.NOOP);
   }
 

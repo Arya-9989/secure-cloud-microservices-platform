@@ -132,6 +132,7 @@ sequenceDiagram
 | IDOR / data leakage | Ownership is part of the SQL query, so another user's order returns **404, not 403** | `OrderRepository.java` |
 | Duplicate orders on retry, cross-customer key probing | Optional `Idempotency-Key`, scoped per customer, claimed under the primary key in the order's transaction; a reused key with a different request is `422` | `idempotency/`, `V3__idempotency_keys.sql` |
 | Price tampering | Clients send SKU and quantity only. Prices come from the server catalog, and unknown JSON fields are rejected | `OrderService.java`, `application.yml` |
+| Machine credentials that leak | Service tokens are DPoP-bound (useless without the client's private key), short-lived (5 min), audience-restricted to one resource and limited to client scopes. The secret is stored as an Argon2 hash, and secret guessing is throttled per client and per IP | `accounts/oauth.py`, `accounts/dpop.py`, `dpop/` (orders) |
 | Stale privileges after disable / demotion | Changing a role or deactivating an account revokes every refresh token immediately. Access tokens expire within 15 minutes | `AdminUserDetailView` |
 | JWKS abuse / auth-service outage | orders-service caches the key set for 5 minutes and refetches on an unknown `kid` at most twice per 10 seconds, so forged key IDs cannot flood auth-service. If auth-service is unreachable, the last good key set keeps verifying for 20 minutes (cache TTL + token lifetime). JWKS requests time out after 2 s; when no keys can be obtained the API answers `503` with `Retry-After`, never `401` or `500` | `JwtDecoderConfig.java` |
 | Signing key exposure | The key never lives in the repo or image. It is generated into a volume (`0600`) locally and mounted from a Secret in K8s. `kid` is the RFC 7638 thumbprint, and extra public keys can be published for rotation | `accounts/keys.py`, `ensure_signing_key` |
@@ -228,6 +229,12 @@ All configuration comes from environment variables. In the compose setup they co
 | `PLATFORM_ORDERS_IDEMPOTENCY_TTL` / `_LOCK_TIMEOUT` | orders | `24h` / `5s` | How long idempotency keys are kept; how long a duplicate waits for the first request |
 | `PLATFORM_SECURITY_JWKS_OUTAGE_TOLERANCE` / `_TIMEOUT` | orders | `20m` / `2s` | How long the last good key set is used while the JWKS is unreachable; per-request timeout |
 | `AUTH_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | auth-init | – | Creates the first administrator (idempotent) |
+| `FULFILMENT_CLIENT_SECRET` | auth-init | **required** in compose | Secret of the `fulfilment` service client (≥ 32 chars, stored hashed) |
+| `OAUTH_RESOURCES` / `CLIENT_TOKEN_TTL_SECONDS` | auth | `urn:secure-platform:orders-service` / `300` | Resources clients may request tokens for; service token lifetime |
+| `DPOP_PROOF_MAX_AGE_SECONDS` / `DPOP_NONCE_LIFETIME_SECONDS` / `DPOP_REQUIRE_NONCE` | auth | `60` / `300` / `true` | DPoP proof freshness and server nonces at the token endpoint |
+| `PLATFORM_SECURITY_RESOURCE` | orders | `urn:secure-platform:orders-service` | This service's resource identifier (the `aud` of service tokens) |
+| `PLATFORM_SECURITY_DPOP_NONCE_SECRET` (`DPOP_NONCE_SECRET` in `.env`) | orders | random per instance | base64url HMAC key (≥ 32 bytes) for DPoP nonces; must be shared by all replicas |
+| `PLATFORM_SECURITY_DPOP_PROOF_MAX_AGE` / `_NONCE_LIFETIME` / `_REQUIRE_NONCE` | orders | `60s` / `5m` / `true` | DPoP proof checks at the resource server |
 | `TRACING_ENABLED` | gateway, auth, orders (compose) | `false` | Distributed tracing; set together with `COMPOSE_PROFILES=tracing` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_SERVICE_NAME` | auth | `http://jaeger:4318` / `auth-service` | Standard OpenTelemetry settings (all `OTEL_*` variables apply) |
 | `MANAGEMENT_TRACING_EXPORT_ENABLED` / `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` | orders | `false` / `http://jaeger:4318/v1/traces` | The same switch and endpoint in Spring Boot's terms |
@@ -252,6 +259,9 @@ All routes go through the gateway. Full schemas are in the Swagger UIs listed ab
 | `GET /api/v1/admin/orders?status=` | `ROLE_ADMIN` + `orders:admin` | All orders |
 | `PATCH /api/v1/admin/orders/{id}/status` | `ROLE_ADMIN` + `orders:admin` | Lifecycle `PENDING → CONFIRMED → SHIPPED → DELIVERED` (or `CANCELLED`); invalid moves → `409` |
 | `GET /.well-known/oauth-protected-resource` | public | RFC 9728 metadata for the orders API |
+| `POST /api/v1/auth/oauth/token` | client secret (HTTP Basic) + DPoP proof | Client credentials grant for services → a 5-minute DPoP-bound token (see below) |
+| `GET /api/v1/fulfilment/orders?status=CONFIRMED` | service token: `orders:fulfil`, DPoP | The warehouse's work queue |
+| `PATCH /api/v1/fulfilment/orders/{id}/status` | service token: `orders:fulfil`, DPoP | Mark `SHIPPED` or `DELIVERED`; nothing else (invalid moves → `409`) |
 
 ### Idempotent order placement
 
@@ -276,7 +286,30 @@ for attempt in 1 2; do
 done
 ```
 
-Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts/models.py)). `USER` gets `orders:read orders:write`, and `ADMIN` additionally gets `orders:admin users:admin`.
+Roles map to scopes in one place ([`ROLE_SCOPES`](services/auth-service/accounts/models.py)). `USER` gets `orders:read orders:write`, and `ADMIN` additionally gets `orders:admin users:admin`. Service clients draw from a separate catalogue ([`CLIENT_SCOPES`](services/auth-service/accounts/models.py), today only `orders:fulfil`), so a machine token never carries a person's scopes.
+
+### Service-to-service calls: client credentials with DPoP
+
+A warehouse (fulfilment) system calls orders-service as itself, with no user account and no admin rights ([ADR 0006](docs/adr/0006-client-credentials-and-dpop.md)):
+
+1. It holds a private key (for example EC P-256) and a client secret. It sends `POST /api/v1/auth/oauth/token` with `grant_type=client_credentials`, HTTP Basic credentials and a **DPoP proof** (RFC 9449): a JWT signed with that key over the method and URL. The first attempt is answered `use_dpop_nonce` with a `DPoP-Nonce` header, and the retry carries that nonce.
+2. auth-service checks everything about the proof: the signature by the embedded public key, `htm`/`htu`, an `iat` within 60 s, the nonce, and a `jti` it hasn't seen before (shared cache). It then issues a 5-minute token with `aud` = `urn:secure-platform:orders-service`, `client_id`, the scope and `cnf.jkt` (the key's thumbprint). No refresh token.
+3. Every call to orders-service sends `Authorization: DPoP <token>` plus a fresh proof, which also binds the token itself (`ath`). orders-service verifies the proof with Spring Security's DPoP support, using a `jti` replay cache in PostgreSQL that every replica shares and its own HMAC nonces (a shared secret, rotating every 5 minutes).
+
+What this buys, and what the tests try:
+
+| Attack | Result |
+|---|---|
+| A stolen token sent as `Bearer` | `401` (no downgrade from DPoP) |
+| A stolen token with the thief's own key | `401` (thumbprint ≠ `cnf.jkt`) |
+| A captured proof, replayed | `401` (`jti` already used) |
+| A proof for another method, URL or token, or an old one | `401` |
+| The client token at the customer, admin or auth APIs | `401` / `403`: it isn't a person and has the wrong audience |
+| A people token (even admin) at the fulfilment API | `403` |
+| A wrong client secret, or an unknown client | `401 invalid_client`, same timing |
+| A DPoP proof presented as an access token | `401` (`typ` must be `JWT`/`at+jwt`) |
+
+mTLS-bound tokens (RFC 8705) were considered and not chosen: TLS ends at the gateway, so the service never sees the client certificate. The ADR explains the trade-off. In compose, `auth-init` creates the `fulfilment` client from `FULFILMENT_CLIENT_SECRET` (`python manage.py ensure_oauth_client`, idempotent), and `tests/e2e/test_service_to_service.py` is a complete client: about 50 lines, PyJWT and cryptography.
 
 ## Observability
 
@@ -482,7 +515,6 @@ cosign verify ghcr.io/arya-9989/secure-cloud-microservices-platform/orders-servi
 
 These are **not implemented** yet:
 
-- OAuth2 client-credentials grant for service-to-service calls, and DPoP / mTLS-bound access tokens.
 - Signing keys in a KMS/HSM, with automated rotation driven by `JWT_ADDITIONAL_PUBLIC_KEY_FILES`.
 - A Helm chart or Argo CD application for GitOps delivery.
 

@@ -4,8 +4,10 @@ import logging
 from typing import Any, NoReturn, cast
 
 from django.db import transaction
+from django.http import QueryDict
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, generics, status
+from rest_framework.parsers import FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -13,8 +15,10 @@ from rest_framework.views import APIView
 
 from platform_core.metrics import LOGIN_ATTEMPTS
 
+from . import dpop
 from .keys import get_key_set
 from .models import RevocationReason, User
+from .oauth import OAuthError, issue_token
 from .permissions import HasScope
 from .serializers import (
     AdminUserUpdateSerializer,
@@ -24,7 +28,14 @@ from .serializers import (
     TokenResponseSerializer,
     UserSerializer,
 )
-from .throttles import LoginAccountThrottle, LoginIPThrottle, RefreshThrottle, RegisterThrottle
+from .throttles import (
+    ClientTokenClientThrottle,
+    ClientTokenIPThrottle,
+    LoginAccountThrottle,
+    LoginIPThrottle,
+    RefreshThrottle,
+    RegisterThrottle,
+)
 from .tokens import (
     TokenError,
     issue_token_pair,
@@ -150,6 +161,57 @@ class LogoutView(PublicEndpoint):
         serializer.is_valid(raise_exception=True)
         revoke_refresh_token(serializer.validated_data["refresh_token"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+
+
+@extend_schema(
+    tags=["oauth"],
+    summary="Client credentials grant for services (RFC 6749 4.4), DPoP-bound (RFC 9449)",
+    description=(
+        "Form-encoded `grant_type=client_credentials`, optional `scope` and `resource` "
+        "(RFC 8707). Authenticate the client with HTTP Basic. Send a `DPoP` proof for "
+        "`POST` to this URL; the first attempt returns `use_dpop_nonce` with a "
+        "`DPoP-Nonce` header to include in the proof. Errors follow RFC 6749 5.2."
+    ),
+    request={"application/x-www-form-urlencoded": dict},
+    responses={
+        200: OpenApiResponse(description="access_token, token_type (DPoP), expires_in, scope"),
+        400: OpenApiResponse(description="OAuth error (invalid_request, invalid_dpop_proof, ...)"),
+        401: OpenApiResponse(description="invalid_client"),
+    },
+)
+class OAuthTokenView(PublicEndpoint):
+    parser_classes = (FormParser,)
+    throttle_classes = (ClientTokenIPThrottle, ClientTokenClientThrottle)
+
+    def post(self, request: Request) -> Response:
+        try:
+            issued = issue_token(
+                authorization=request.headers.get("Authorization", ""),
+                form=_form_lists(request),
+                dpop_headers=_header_values(request, "HTTP_DPOP"),
+                method=request.method or "POST",
+                url=request.build_absolute_uri(request.path),
+            )
+        except OAuthError as exc:
+            return Response(exc.body(), status=exc.status, headers={**NO_STORE, **exc.headers})
+        # A fresh nonce on every response lets the client sign its next proof with it.
+        return Response(issued.as_response(), headers={**NO_STORE, "DPoP-Nonce": dpop.new_nonce()})
+
+
+def _form_lists(request: Request) -> dict[str, list[str]]:
+    data = request.data
+    if not isinstance(data, QueryDict):  # FormParser always yields a QueryDict
+        return {}
+    return {key: data.getlist(key) for key in data}
+
+
+def _header_values(request: Request, meta_key: str) -> list[str]:
+    value = request.META.get(meta_key)
+    # WSGI folds repeated headers into one comma-separated value; a JWT has no commas.
+    return [] if value is None else [v.strip() for v in str(value).split(",")]
 
 
 @extend_schema(tags=["auth"], summary="The authenticated caller", responses={200: UserSerializer})
