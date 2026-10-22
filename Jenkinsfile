@@ -95,10 +95,12 @@ pipeline {
                     agent any
                     steps {
                         sh '''
-                            kubectl kustomize deploy/k8s > k8s.yaml
-                            docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
-                                -strict -summary -kubernetes-version 1.33.0 \
-                                -schema-location default -schema-location "$CRD_SCHEMAS" - < k8s.yaml
+                            for dir in deploy/k8s deploy/k8s/admission tests/admission; do
+                                kubectl kustomize "$dir" > k8s.yaml
+                                docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+                                    -strict -summary -kubernetes-version 1.33.0 \
+                                    -schema-location default -schema-location "$CRD_SCHEMAS" - < k8s.yaml
+                            done
                             for args in "check config /etc/prometheus/prometheus.yml" "test rules /etc/prometheus/alerts.test.yml"; do
                                 docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
                                     --entrypoint promtool "$PROM_IMAGE" $args

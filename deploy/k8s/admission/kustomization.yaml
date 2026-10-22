@@ -1,0 +1,16 @@
+# Admission-time supply-chain checks (docs/adr/0005-image-signing.md). Cluster-scoped,
+# so they are applied by a cluster administrator, separately from the app:
+#
+#   kubectl apply -k deploy/k8s/admission      # needs Kyverno >= 1.17 (ImageValidatingPolicy v1)
+#
+# - trusted-registry.yaml: native ValidatingAdmissionPolicy, pods in the platform
+#   namespace may only run images from the project's GHCR repository.
+# - image-signatures.yaml: Kyverno ImageValidatingPolicy, each of those images must be
+#   signed by this repository's CI workflow on main (keyless, Sigstore) and carry a
+#   signed SPDX SBOM attestation. Tags are rewritten to the verified digest.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - trusted-registry.yaml
+  - image-signatures.yaml

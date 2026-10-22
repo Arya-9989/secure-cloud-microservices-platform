@@ -137,6 +137,7 @@ sequenceDiagram
 | Signing key exposure | The key never lives in the repo or image. It is generated into a volume (`0600`) locally and mounted from a Secret in K8s. `kid` is the RFC 7638 thumbprint, and extra public keys can be published for rotation | `accounts/keys.py`, `ensure_signing_key` |
 | Secrets in source | None. `scripts/init_env.py` generates `.env` locally (git-ignored), and the services refuse to start without required secrets | `.env.example`, `settings.py` |
 | Container breakout / lateral movement | Non-root users, read-only root filesystems, all capabilities dropped, `no-new-privileges`, distroless JVM image. K8s adds restricted Pod Security and default-deny NetworkPolicies | Dockerfiles, `compose.yaml`, `deploy/k8s/` |
+| Tampered or foreign images | CI signs each pushed digest keyless (GitHub OIDC → Fulcio, logged in Rekor) and attests its SPDX SBOM. In the cluster, Kyverno admits a pod only when its image carries both, from this repository's `ci.yml` on `main`, and pins the tag to the verified digest. A native admission policy allows no other registry | `.github/workflows/ci.yml`, `deploy/k8s/admission/` |
 | Vulnerable dependencies | `pip-audit` on locked Python deps. Trivy fails CI on fixable HIGH/CRITICAL in either image (OS and language packages). Dependabot keeps everything current | `.github/workflows/ci.yml` |
 | Script injection in browser-facing pages | No inline script or style anywhere. The landing page sends `default-src 'none'` with `script-src 'self'` and `require-trusted-types-for 'script'`, and writes to the DOM through `textContent` only. Both Swagger UI pages run under `script-src 'self'` without `'unsafe-inline'`: their bootstrap scripts are files and every asset is self-hosted. All three send `Cross-Origin-Opener-Policy: same-origin`, and bearer tokens typed into a Swagger page are not persisted to `localStorage` | `services/landing/`, `auth_service/settings.py`, `SecurityConfig.java` |
 | Transport | HTTPS entry point (TLS 1.2+, AEAD ciphers) with HSTS. HTTP→HTTPS redirect is a one-line production switch | `gateway/` |
@@ -338,7 +339,8 @@ docker compose up --build --wait
 | `orders-service` | Spotless, `-Werror` compile, JUnit + Testcontainers (real PostgreSQL), image build, Trivy scan |
 | `platform-config` | `kustomize` + `kubeconform -strict` (with Traefik CRD schemas), `promtool` config check and alert-rule tests, `amtool check-config` and routing-tree tests, Jaeger config validation, compose validation, lint of e2e tests, scripts and the alert sink, type-checks, alert-sink unit tests |
 | `e2e` | `docker compose up --wait` of the full stack (tracing on), the black-box suite through the gateway, then the k6 load test, which fails the job on any missed latency or error SLO; logs dumped on failure, k6 summary kept as an artifact |
-| `publish` (main only) | Pushes both images to GHCR with branch and immutable `sha-` tags, provenance and SBOM attestations |
+| `admission` | kind cluster + local registry + Kyverno: signed images are admitted (and pinned to their digest), and unsigned, wrongly signed, SBOM-less or foreign-registry images are rejected |
+| `publish` (main only) | Pushes both images to GHCR with branch and immutable `sha-` tags, provenance and SBOM; signs each digest keyless with cosign, attests the SPDX SBOM, and verifies both against the workflow's identity |
 
 Trivy fails the build on any **fixable HIGH/CRITICAL** vulnerability in the OS or language packages of all three images. No ignore list is needed today.
 
@@ -403,6 +405,35 @@ What the manifests include:
 
 CI validates them with `kubeconform -strict`, including the CRDs. They have not been applied to a live cluster as part of this repository's checks.
 
+### Signed images only (admission control)
+
+[`deploy/k8s/admission`](deploy/k8s/admission) holds two cluster-scoped policies that a cluster admin applies once (`kubectl apply -k deploy/k8s/admission`, Kyverno ≥ 1.17). See [ADR 0005](docs/adr/0005-image-signing.md).
+
+- **`ImageValidatingPolicy` (Kyverno):** in `secure-platform`, an image under `ghcr.io/arya-9989/secure-cloud-microservices-platform/` must be signed by `.github/workflows/ci.yml@refs/heads/main` (keyless, GitHub OIDC issuer, checked in Rekor) and carry an SPDX SBOM attestation from the same identity. The tag is pinned to the verified digest. It fails closed, and it covers Deployments and Jobs as well as bare pods.
+- **`ValidatingAdmissionPolicy` (native):** no image from any other registry may run in the namespace, so nothing can avoid the signature check by not matching it.
+
+`tests/admission/kind-admission-test.sh` proves this on a throwaway kind cluster: a local registry, Kyverno 1.19.1 from its Helm chart, and the same policies with a test key in place of the keyless identity. Locally it needs docker, kind, kubectl, helm, cosign and python3. It deletes the cluster and the registry when it finishes:
+
+```text
+ok    allow signed by CI with a signed SBOM (referenced by tag)
+ok    deny  unsigned image in the trusted registry
+ok    deny  signed by CI but without an SBOM attestation
+ok    deny  signed and attested with someone else's key
+ok    deny  image from a registry outside the trusted one
+ok    deny  Deployment with an unsigned image (policy autogen)
+ok    allow Deployment with the signed image
+ok    tag pinned to the verified digest
+ok    the signed pod is Running (pulled from the local registry)
+```
+
+Once CI has published an image from `main`, anyone can check it. The Jenkins pipeline publishes unsigned: keyless signing needs an OIDC identity, which GitHub Actions provides and a self-hosted Jenkins doesn't, so the GitHub workflow is the trusted publisher.
+
+```bash
+cosign verify ghcr.io/arya-9989/secure-cloud-microservices-platform/orders-service:main \
+  --certificate-identity https://github.com/Arya-9989/secure-cloud-microservices-platform/.github/workflows/ci.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## Project structure
 
 ```text
@@ -453,7 +484,7 @@ These are **not implemented** yet:
 
 - OAuth2 client-credentials grant for service-to-service calls, and DPoP / mTLS-bound access tokens.
 - Signing keys in a KMS/HSM, with automated rotation driven by `JWT_ADDITIONAL_PUBLIC_KEY_FILES`.
-- Image signing with cosign and admission-time verification; a Helm chart or Argo CD application for GitOps delivery.
+- A Helm chart or Argo CD application for GitOps delivery.
 
 ## License
 

@@ -1,0 +1,42 @@
+# Only the project's own images may run in the platform namespace. This closes the
+# gap a signature policy alone leaves: an image the signature policy does not match
+# (any other registry) would otherwise not be checked at all. Native Kubernetes
+# (admissionregistration.k8s.io/v1, GA since 1.30): no extra controller involved.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: secure-platform-trusted-registry
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "pods/ephemeralcontainers"]
+  variables:
+    - name: trustedPrefix
+      expression: "'ghcr.io/arya-9989/secure-cloud-microservices-platform/'"
+    - name: images
+      expression: >-
+        object.spec.containers.map(c, c.image) +
+        (has(object.spec.initContainers) ? object.spec.initContainers.map(c, c.image) : []) +
+        (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers.map(c, c.image) : [])
+  validations:
+    - expression: "variables.images.all(image, image.startsWith(variables.trustedPrefix))"
+      messageExpression: >-
+        'only images from ' + variables.trustedPrefix + ' may run here, got: ' +
+        variables.images.filter(i, !i.startsWith(variables.trustedPrefix)).join(', ')
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: secure-platform-trusted-registry
+spec:
+  policyName: secure-platform-trusted-registry
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: secure-platform
