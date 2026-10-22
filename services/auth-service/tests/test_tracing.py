@@ -9,6 +9,7 @@ from collections.abc import Iterator
 import pytest
 from django.db import connection
 from opentelemetry import trace
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -32,13 +33,22 @@ def traceparent(sampled: bool = True) -> str:
 
 
 @pytest.fixture
-def spans() -> Iterator[InMemorySpanExporter]:
+def spans(request: pytest.FixtureRequest) -> Iterator[InMemorySpanExporter]:
     exporter = InMemorySpanExporter()
     provider = tracing.build_tracer_provider(exporter, batch=False)
     tracing.instrument(provider)
+    # In production the instrumentation is installed before the first connection; the test
+    # database connection already exists, so instrument it explicitly.
+    raw = None
+    if connection.vendor == "postgresql" and "django_db" in request.keywords:
+        connection.ensure_connection()
+        raw = connection.connection
+        PsycopgInstrumentor.instrument_connection(raw, tracer_provider=provider)
     try:
         yield exporter
     finally:
+        if raw is not None:
+            PsycopgInstrumentor.uninstrument_connection(raw)
         tracing.uninstrument()
         provider.shutdown()
 
