@@ -15,9 +15,19 @@ updates:
   - package-ecosystem: docker
     directories: ["/services/auth-service", "/services/orders-service"]
     schedule: { interval: weekly }
+    ignore:
+      # Stay on LTS runtimes; Java and Python major upgrades are deliberate, not automated.
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: weekly }
+    ignore:
+      # Postgres major upgrades need a dump/restore (PG 18 also changes the data directory layout).
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
