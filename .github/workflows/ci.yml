@@ -104,7 +104,7 @@ jobs:
             -strict -summary -kubernetes-version 1.33.0 - < "$RUNNER_TEMP/k8s.yaml"
       - name: Validate compose file
         run: |
-          python scripts/init_env.py
+          python3 scripts/init_env.py
           docker compose config --quiet
       - name: Lint e2e tests and scripts
         run: |
@@ -127,7 +127,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: tests/e2e/uv.lock
       - name: Generate throwaway secrets
-        run: python scripts/init_env.py
+        run: python3 scripts/init_env.py
       - name: Start the platform
         run: docker compose up --build --wait --wait-timeout 300
       - name: Run e2e suite through the gateway
