@@ -85,6 +85,23 @@ jobs:
       - name: Scan image incl. Java dependencies (Trivy)
         run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" $TRIVY_ARGS orders-service:ci
 
+  landing:
+    name: landing · config test, image, scan
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: services/landing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check page scripts parse
+        run: node --check site/assets/landing.js && node --check site/assets/docs-theme.js
+      - name: Build image (the build runs nginx -t)
+        run: docker build --tag landing:ci .
+      - name: Scan image (Trivy)
+        run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" $TRIVY_ARGS landing:ci
+
   platform-config:
     name: K8s manifests, e2e & script lint
     runs-on: ubuntu-24.04
@@ -115,7 +132,7 @@ jobs:
 
   e2e:
     name: End-to-end (docker compose)
-    needs: [auth-service, orders-service, platform-config]
+    needs: [auth-service, orders-service, landing, platform-config]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

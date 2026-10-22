@@ -13,7 +13,7 @@ updates:
       java:
         patterns: ["*"]
   - package-ecosystem: docker
-    directories: ["/services/auth-service", "/services/orders-service"]
+    directories: ["/services/auth-service", "/services/orders-service", "/services/landing"]
     schedule: { interval: weekly }
     ignore:
       # Stay on LTS runtimes; Java and Python major upgrades are deliberate, not automated.

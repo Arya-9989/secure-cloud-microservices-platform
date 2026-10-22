@@ -83,7 +83,7 @@ pipeline {
                 stage('Build & scan images') {
                     steps {
                         script {
-                            ['auth-service', 'orders-service'].each { svc ->
+                            ['auth-service', 'orders-service', 'landing'].each { svc ->
                                 // Also tagged with the name compose.yaml uses, so e2e runs these exact images.
                                 sh "docker build --tag ${svc}:${env.GIT_COMMIT} --tag secure-platform/${svc}:local services/${svc}"
                                 sh """docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ${TRIVY_IMAGE} \
