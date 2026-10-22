@@ -337,7 +337,7 @@ docker compose up --build --wait
 | `landing` | Script syntax check, live-console unit tests (`node --test`), image build (runs `nginx -t`), Trivy scan |
 | `orders-service` | Spotless, `-Werror` compile, JUnit + Testcontainers (real PostgreSQL), image build, Trivy scan |
 | `platform-config` | `kustomize` + `kubeconform -strict` (with Traefik CRD schemas), `promtool` config check and alert-rule tests, `amtool check-config` and routing-tree tests, Jaeger config validation, compose validation, lint of e2e tests, scripts and the alert sink, type-checks, alert-sink unit tests |
-| `e2e` | `docker compose up --wait` of the full stack, then the black-box suite through the gateway; logs dumped on failure |
+| `e2e` | `docker compose up --wait` of the full stack (tracing on), the black-box suite through the gateway, then the k6 load test, which fails the job on any missed latency or error SLO; logs dumped on failure, k6 summary kept as an artifact |
 | `publish` (main only) | Pushes both images to GHCR with branch and immutable `sha-` tags, provenance and SBOM attestations |
 
 Trivy fails the build on any **fixable HIGH/CRITICAL** vulnerability in the OS or language packages of all three images. No ignore list is needed today.
@@ -353,7 +353,25 @@ A [`Jenkinsfile`](Jenkinsfile) runs the same checks with Docker agents for teams
 | end-to-end | 31 black-box tests | `cd tests/e2e && uv run pytest` (stack running) | Cross-service token verification, forged tokens, per-account throttling, session revocation, correlation IDs, HTTPS/HSTS, TLS 1.2 AEAD-only ciphers, docs routing, landing page and docs under strict CSP, Prometheus targets, every dashboard query returns data, Grafana provisioning, edge 429s |
 | landing | 24 unit tests | `cd services/landing && node --test` | Live-console wording for each failure, backoff, no overlapping rounds, pause and hidden-tab behaviour, sparkline geometry (outages stay visible), no inline script or style, motion only animates opacity, transforms and stroke and is skipped under reduced motion, request-flow copy present without JavaScript |
 | alert rules | 6 `promtool` test groups | see [`alerts.test.yml`](observability/prometheus/alerts.test.yml) | Every alert fires on the condition it describes |
+| load (k6) | 3 scenarios + warm-up, about 3,500 requests in 2.5 min | `k6 run tests/load/platform.js` (stack running; `BASE_URL` defaults to `http://localhost:8080`) | Latency SLOs per scenario and < 1 % errors, enforced in CI. See [Load tests and SLOs](#load-tests-and-slos) |
 | alert routing | 8 `amtool` route cases, 10 sink unit tests | [`routes.test.sh`](observability/alertmanager/routes.test.sh), `uv run --project tests/e2e pytest observability/alert-sink` | Each rule reaches its receiver; the sink rejects malformed and oversized payloads |
+
+### Load tests and SLOs
+
+[`tests/load/platform.js`](tests/load/platform.js) drives realistic traffic through the gateway with k6's open model (constant arrival rate), after a 30 s warm-up that doesn't count towards latency:
+
+| Scenario | Rate | SLO (p95 / p99) | Measured locally, worse of two cold-stack runs |
+|---|---|---|---|
+| browse: catalog + my orders | 10 iterations/s | 100 / 250 ms | 12 / 31 ms |
+| place_order: `POST` with `Idempotency-Key`, 1 in 10 retried | 4/s | 150 / 400 ms | 29 / 79 ms |
+| login: Argon2id password check | 1/s | 1000 / 2000 ms | 637 / 854 ms |
+
+Errors must stay under 1 % (a `429` counts) and checks above 99 %. Both runs had 0 failed requests out of about 3,500, and every retried order replayed the original. The rates stay inside the platform's own per-IP limits, because all load comes from one address. These are latency SLOs, not capacity numbers. Why the thresholds sit where they do, and the headroom over the measured values, is in [ADR 0004](docs/adr/0004-load-tests-and-slos.md).
+
+```bash
+docker compose up --build --wait
+k6 run tests/load/platform.js            # or: docker run --rm --network host -v "$PWD/tests/load:/load:ro" grafana/k6:2.3.0 run /load/platform.js
+```
 
 ## Deploying to Kubernetes
 
@@ -436,7 +454,6 @@ These are **not implemented** yet:
 - OAuth2 client-credentials grant for service-to-service calls, and DPoP / mTLS-bound access tokens.
 - Signing keys in a KMS/HSM, with automated rotation driven by `JWT_ADDITIONAL_PUBLIC_KEY_FILES`.
 - Image signing with cosign and admission-time verification; a Helm chart or Argo CD application for GitOps delivery.
-- Load tests (k6) with latency SLOs enforced in CI.
 
 ## License
 

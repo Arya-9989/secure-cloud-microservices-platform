@@ -18,6 +18,7 @@ pipeline {
         PROM_IMAGE  = 'prom/prometheus:v3.15.0'
         JAEGER_IMAGE = 'jaegertracing/jaeger:2.20.0'
         ALERTMANAGER_IMAGE = 'prom/alertmanager:v0.34.1'
+        K6_IMAGE    = 'grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34'
         PG_IMAGE    = 'postgres:17.11-alpine'
         CRD_SCHEMAS = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
         REGISTRY    = 'ghcr.io/arya-9989/secure-cloud-microservices-platform'
@@ -167,6 +168,12 @@ pipeline {
                                 -e JAEGER_URL=http://localhost:17686 -e TRACING_ENABLED=true \
                                 -e ALERTMANAGER_URL=http://localhost:19093 -e ALERT_SINK_URL=http://localhost:19097 \
                                 "$UV_IMAGE" uv run --locked pytest -v --junitxml=reports/junit.xml
+                        '''
+                        // Latency SLOs: k6 exits non-zero when a threshold fails.
+                        sh '''
+                            docker run --rm --network host -v "$PWD/tests/load:/load:ro" \
+                                -e BASE_URL=http://localhost:18080 \
+                                "$K6_IMAGE" run /load/platform.js
                         '''
                     }
                     post {
