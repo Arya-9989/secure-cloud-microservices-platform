@@ -102,6 +102,9 @@ SQL_SYSTEM_TAGS = ("db.system", "db.system.name")
 
 
 def is_sql(span: Span) -> bool:
+    """psycopg spans set db.system; datasource-micrometer records jdbc.query[0]."""
+    if "jdbc.query[0]" in span.tags:
+        return True
     return any(str(span.tags.get(key, "")).lower() == "postgresql" for key in SQL_SYSTEM_TAGS)
 
 
@@ -175,13 +178,29 @@ class TestTracing:
     def test_grafana_reads_traces_from_jaeger(self) -> None:
         auth = (setting("GRAFANA_ADMIN_USER", "admin"), setting("GRAFANA_ADMIN_PASSWORD"))
 
-        def services_listed() -> None:
-            response = httpx.get(
-                f"{GRAFANA_URL}/api/datasources/proxy/uid/jaeger/api/services",
-                auth=auth,
-                timeout=10,
-            )
-            assert response.status_code == 200, response.text
-            assert {"gateway", "auth-service", "orders-service"} <= set(response.json()["data"])
+        health = httpx.get(
+            f"{GRAFANA_URL}/api/datasources/uid/jaeger/health", auth=auth, timeout=10
+        )
+        assert health.json()["status"] == "OK", health.text
 
-        eventually(services_listed)
+        def search_finds_traces() -> None:
+            query = {
+                "queries": [
+                    {
+                        "refId": "A",
+                        "datasource": {"uid": "jaeger", "type": "jaeger"},
+                        "queryType": "search",
+                        "service": "orders-service",
+                        "limit": 5,
+                    }
+                ],
+                "from": "now-1h",
+                "to": "now",
+            }
+            response = httpx.post(f"{GRAFANA_URL}/api/ds/query", json=query, auth=auth, timeout=10)
+            assert response.status_code == 200, response.text
+            frames = response.json()["results"]["A"]["frames"]
+            assert frames, "Grafana returned no frames"
+            assert frames[0]["data"]["values"], "Grafana found no orders-service traces"
+
+        eventually(search_finds_traces)

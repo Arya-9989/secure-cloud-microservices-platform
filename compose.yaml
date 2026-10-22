@@ -269,7 +269,9 @@ services:
   # Trace backend, only with `--profile tracing` (or COMPOSE_PROFILES=tracing) and
   # TRACING_ENABLED=true. The UI binds to localhost; OTLP stays on the backend network.
   jaeger:
-    image: jaegertracing/jaeger:2.22.0
+    # 2.20 is the newest release that still serves the query API Grafana's Jaeger
+    # datasource uses (/api/services, /api/traces); 2.21 serves only /api/v3.
+    image: jaegertracing/jaeger:2.20.0
     profiles: [tracing]
     <<: [*hardening, *logging]
     user: "10001:10001"

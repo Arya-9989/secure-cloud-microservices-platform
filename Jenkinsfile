@@ -16,7 +16,7 @@ pipeline {
         TRIVY_IMAGE = 'aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c'
         UV_IMAGE    = 'ghcr.io/astral-sh/uv:0.13.5-python3.12-trixie-slim'
         PROM_IMAGE  = 'prom/prometheus:v3.15.0'
-        JAEGER_IMAGE = 'jaegertracing/jaeger:2.22.0'
+        JAEGER_IMAGE = 'jaegertracing/jaeger:2.20.0'
         ALERTMANAGER_IMAGE = 'prom/alertmanager:v0.34.1'
         PG_IMAGE    = 'postgres:17.11-alpine'
         CRD_SCHEMAS = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'

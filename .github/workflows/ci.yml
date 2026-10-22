@@ -135,7 +135,7 @@ jobs:
       - name: Validate the Jaeger config (compose profile tracing)
         run: |
           docker run --rm -v "$PWD/observability/jaeger:/etc/jaeger:ro" \
-            jaegertracing/jaeger:2.22.0 validate --config /etc/jaeger/config.yaml
+            jaegertracing/jaeger:2.20.0 validate --config /etc/jaeger/config.yaml
       - name: Check Alertmanager config and unit-test the routing tree (amtool)
         run: |
           docker run --rm -v "$PWD/observability/alertmanager:/etc/alertmanager:ro" \

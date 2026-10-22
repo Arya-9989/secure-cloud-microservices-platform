@@ -117,7 +117,7 @@ sequenceDiagram
 | **postgres** | PostgreSQL 17 | Separate database and least-privilege role per service | 5432 (internal only) |
 | **prometheus** / **grafana** | Prometheus 3.15, Grafana 13.2 | Metrics, alert rules, provisioned dashboard | 9090 / 3000 (localhost only) |
 | **alertmanager** / **alert-sink** | Alertmanager 0.34, a standard-library Python receiver | Routes alerts by severity and category; the sink records what is delivered (local stand-in for a pager) | 9093 / 9097 (localhost only) |
-| **jaeger** (profile `tracing`) | Jaeger 2.22 (in-memory) | Distributed traces over OTLP/HTTP, Grafana datasource | 16686 UI (localhost only) |
+| **jaeger** (profile `tracing`) | Jaeger 2.20 (in-memory) | Distributed traces over OTLP/HTTP, Grafana datasource | 16686 UI (localhost only) |
 
 ## Security model
 
@@ -269,7 +269,9 @@ Keys are scoped to the customer (the token's `sub`) and kept for 24 hours. Only 
 ```bash
 KEY=$(python -c 'import uuid; print(uuid.uuid4())')
 for attempt in 1 2; do
-  curl -si -X POST localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN"     -H "Idempotency-Key: $KEY" -H 'Content-Type: application/json'     -d '{"lines":[{"sku":"KB-001","quantity":1}]}' | grep -E '^HTTP|Idempotent-Replayed|"id"'
+  curl -si -X POST localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN" \
+    -H "Idempotency-Key: $KEY" -H 'Content-Type: application/json' \
+    -d '{"lines":[{"sku":"KB-001","quantity":1}]}' | grep -E '^HTTP|Idempotent-Replayed|"id"'
 done
 ```
 
