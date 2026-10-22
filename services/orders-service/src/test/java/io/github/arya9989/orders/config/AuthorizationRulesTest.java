@@ -24,7 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
@@ -75,11 +75,26 @@ class AuthorizationRulesTest {
     void customerApiRequiresAToken() throws Exception {
       mvc.perform(get("/api/v1/orders"))
           .andExpect(status().isUnauthorized())
-          .andExpect(header().string("WWW-Authenticate", "Bearer"))
+          .andExpect(
+              header()
+                  .string(
+                      "WWW-Authenticate",
+                      "Bearer resource_metadata=\"http://localhost/.well-known/oauth-protected-resource\""))
           .andExpect(header().exists("X-Request-ID"))
           .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
           .andExpect(jsonPath("$.status").value(401))
           .andExpect(jsonPath("$.request_id").exists());
+    }
+
+    @Test
+    void protectedResourceMetadataIsPublic() throws Exception {
+      // RFC 9728: tells clients which authorization server and token formats this API accepts.
+      mvc.perform(get("/.well-known/oauth-protected-resource"))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.resource").value("http://localhost"))
+          .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"))
+          .andExpect(jsonPath("$.scopes_supported.length()").value(3))
+          .andExpect(jsonPath("$.tls_client_certificate_bound_access_tokens").value(false));
     }
 
     @Test

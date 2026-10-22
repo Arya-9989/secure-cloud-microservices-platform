@@ -1,6 +1,5 @@
 package io.github.arya9989.orders.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -14,6 +13,7 @@ import org.springframework.security.oauth2.server.resource.web.access.BearerToke
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 401/403 responses as RFC 9457 problem documents, so security failures look like every other API
@@ -27,10 +27,10 @@ public class ProblemDetailsSecurityHandlers
   private final BearerTokenAuthenticationEntryPoint entryPoint =
       new BearerTokenAuthenticationEntryPoint();
   private final BearerTokenAccessDeniedHandler deniedHandler = new BearerTokenAccessDeniedHandler();
-  private final ObjectMapper objectMapper;
+  private final JsonMapper jsonMapper;
 
-  public ProblemDetailsSecurityHandlers(ObjectMapper objectMapper) {
-    this.objectMapper = objectMapper;
+  public ProblemDetailsSecurityHandlers(JsonMapper jsonMapper) {
+    this.jsonMapper = jsonMapper;
   }
 
   @Override
@@ -59,6 +59,6 @@ public class ProblemDetailsSecurityHandlers
     }
     response.setStatus(status.value());
     response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-    objectMapper.writeValue(response.getOutputStream(), problem);
+    jsonMapper.writeValue(response.getOutputStream(), problem);
   }
 }

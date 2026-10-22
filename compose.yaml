@@ -27,8 +27,11 @@ x-auth-env: &auth-env
   JWT_AUDIENCE: ${JWT_AUDIENCE:-secure-platform-api}
   ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
   TRUSTED_PROXY_COUNT: "1" # the gateway
-  # Production default is 10/hour per IP; relaxed so tests and demos can be re-run locally.
+  # Every host client reaches the service from the same Docker bridge IP, so the
+  # per-IP limits (production defaults: 10/hour and 20/min) are relaxed locally to
+  # let the e2e suite and demo traffic run repeatedly. Per-account limits are unchanged.
   REGISTER_RATE_PER_IP: ${REGISTER_RATE_PER_IP:-200/hour}
+  LOGIN_RATE_PER_IP: ${LOGIN_RATE_PER_IP:-120/min}
   TRUST_PROXY_PROTO_HEADER: "true"
   LOG_FORMAT: json
 

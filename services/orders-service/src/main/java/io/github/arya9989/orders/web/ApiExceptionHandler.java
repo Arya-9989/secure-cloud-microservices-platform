@@ -3,12 +3,12 @@ package io.github.arya9989.orders.web;
 import io.github.arya9989.orders.order.InvalidOrderStateException;
 import io.github.arya9989.orders.order.OrderNotFoundException;
 import io.github.arya9989.orders.order.UnknownProductException;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -41,7 +41,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(UnknownProductException.class)
   ProblemDetail unknownProduct(UnknownProductException ex) {
     return withRequestId(
-        ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()));
+        ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage()));
   }
 
   @Override

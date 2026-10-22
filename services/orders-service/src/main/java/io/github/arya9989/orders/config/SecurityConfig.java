@@ -9,7 +9,7 @@ import io.github.arya9989.orders.web.ProblemDetailsSecurityHandlers;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -48,6 +48,7 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 public class SecurityConfig {
 
   static final String ROLES_CLAIM = "roles";
+  static final List<String> SCOPES = List.of("orders:read", "orders:write", "orders:admin");
 
   @Bean
   SecurityFilterChain apiSecurity(HttpSecurity http, ProblemDetailsSecurityHandlers problems)
@@ -79,6 +80,15 @@ public class SecurityConfig {
             oauth ->
                 oauth
                     .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
+                    // RFC 9728 document at /.well-known/oauth-protected-resource, advertised in
+                    // WWW-Authenticate. Describe only what this API really supports.
+                    .protectedResourceMetadata(
+                        metadata ->
+                            metadata.protectedResourceMetadataCustomizer(
+                                m ->
+                                    m.resourceName("Orders Service API")
+                                        .scopes(s -> s.addAll(SCOPES))
+                                        .tlsClientCertificateBoundAccessTokens(false)))
                     .authenticationEntryPoint(problems)
                     .accessDeniedHandler(problems))
         .exceptionHandling(e -> e.authenticationEntryPoint(problems).accessDeniedHandler(problems))

@@ -128,6 +128,15 @@ class TestTokens:
         assert blocked.status_code == 429, "even the right password is refused while throttled"
         assert int(blocked.headers["Retry-After"]) > 0
 
+    def test_resource_server_advertises_rfc9728_metadata(self, gateway: httpx.Client) -> None:
+        challenge = gateway.get("/api/v1/orders").headers["WWW-Authenticate"]
+        metadata_url = challenge.split('resource_metadata="', 1)[1].rstrip('"')
+
+        metadata = gateway.get(metadata_url)
+
+        assert metadata.status_code == 200
+        assert metadata.json()["bearer_methods_supported"] == ["header"]
+
 
 class TestOrders:
     def test_customer_order_lifecycle(self, gateway: httpx.Client, alice: Account) -> None:

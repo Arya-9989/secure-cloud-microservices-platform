@@ -8,13 +8,13 @@ import java.io.IOException;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.slf4j.event.Level;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -37,7 +37,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
       Set.of("/actuator/health/liveness", "/actuator/health/readiness", "/actuator/prometheus");
   private static final Logger ACCESS = LoggerFactory.getLogger("access");
 
-  @Nullable public static String currentRequestId() {
+  public static @Nullable String currentRequestId() {
     return MDC.get(MDC_KEY);
   }
 
