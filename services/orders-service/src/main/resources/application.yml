@@ -1,0 +1,94 @@
+# All values can be overridden with environment variables using Spring's relaxed
+# binding, e.g. SPRING_DATASOURCE_URL, PLATFORM_SECURITY_JWK_SET_URI.
+spring:
+  application:
+    name: orders-service
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/orders
+    username: orders
+    password: ${SPRING_DATASOURCE_PASSWORD:} # no usable default on purpose
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate # Flyway owns the schema; Hibernate only checks it matches
+    properties:
+      hibernate:
+        default_batch_fetch_size: 50
+  flyway:
+    locations: classpath:db/migration
+  mvc:
+    problemdetails:
+      enabled: true
+  jackson:
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: true
+
+server:
+  port: 8080
+  shutdown: graceful
+  forward-headers-strategy: native
+  error:
+    include-stacktrace: never
+    include-message: never
+
+platform:
+  security:
+    issuer: urn:secure-platform:auth-service
+    audience: secure-platform-api
+    jwk-set-uri: http://auth-service:8000/.well-known/jwks.json
+    clock-skew: 30s
+
+management:
+  server:
+    port: 8081 # internal only: never routed through the gateway
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  info:
+    build:
+      enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+    tags:
+      service: orders-service
+  observations:
+    key-values:
+      service: orders-service
+
+springdoc:
+  api-docs:
+    path: /docs/orders/openapi.json
+  swagger-ui:
+    path: /docs/orders
+    try-it-out-enabled: true
+    persist-authorization: true
+
+logging:
+  structured:
+    format:
+      console: logstash
+    json:
+      add:
+        service: orders-service
+  level:
+    root: INFO
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: WARN
