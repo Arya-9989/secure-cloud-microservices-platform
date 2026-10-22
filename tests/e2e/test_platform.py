@@ -43,6 +43,11 @@ class TestGateway:
         assert response.headers["Content-Type"].startswith("text/html")
         assert "<h1" in response.text
         assert re.search(r"<script(?![^>]*\bsrc=)", response.text) is None, "no inline <script>"
+        assert re.search(r"\sstyle\s*=|<style[\s>]", response.text) is None, "no inline style"
+        # The request-flow story is plain HTML, readable without JavaScript.
+        assert response.text.count('<li class="flow-step') == 5
+        assert "JWKS fetched." in response.text
+        assert "No token, 401." in response.text
         assert "default-src 'none'" in csp
         assert "script-src 'self'" in csp
         assert "require-trusted-types-for 'script'" in csp
@@ -54,6 +59,7 @@ class TestGateway:
             "/assets/landing.css",
             "/assets/landing.js",
             "/assets/live.js",
+            "/assets/motion.js",
             "/assets/docs.css",
         )
         for asset in assets:
