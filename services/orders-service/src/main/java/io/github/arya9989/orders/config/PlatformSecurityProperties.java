@@ -35,14 +35,15 @@ public record PlatformSecurityProperties(
    * @param refetchMinInterval a token with an unknown {@code kid} triggers a refetch, but at most
    *     two per interval, so forged key ids cannot turn every request into a call to the auth
    *     service
-   * @param outageTolerance how long the last good key set keeps verifying tokens while the JWKS
-   *     endpoint cannot be reached. At least the access-token lifetime, so reads keep working
-   *     through an auth-service outage for as long as the tokens they carry are valid
+   * @param outageTolerance how long after the last successful fetch the cached key set keeps
+   *     verifying tokens while the JWKS endpoint cannot be reached. At least {@code cacheTtl} plus
+   *     the access-token lifetime (5 + 15 minutes), so reads keep working through an auth-service
+   *     outage for as long as the tokens they carry are valid
    * @param timeout connect and read timeout of one JWKS request
    */
   public record Jwks(
       @DefaultValue("5m") Duration cacheTtl,
       @DefaultValue("10s") Duration refetchMinInterval,
-      @DefaultValue("15m") Duration outageTolerance,
+      @DefaultValue("20m") Duration outageTolerance,
       @DefaultValue("2s") Duration timeout) {}
 }

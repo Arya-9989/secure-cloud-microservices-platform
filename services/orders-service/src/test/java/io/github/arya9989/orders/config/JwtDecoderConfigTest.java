@@ -28,7 +28,7 @@ class JwtDecoderConfigTest {
       new PlatformSecurityProperties.Jwks(
           Duration.ofMinutes(5),
           Duration.ofSeconds(10),
-          Duration.ofMinutes(15),
+          Duration.ofMinutes(20),
           Duration.ofSeconds(2));
 
   private final RSAKey signingKey = TestTokens.newRsaKey();
@@ -110,7 +110,7 @@ class JwtDecoderConfigTest {
             new PlatformSecurityProperties.Jwks(
                 Duration.ofMillis(300),
                 Duration.ofMillis(100),
-                Duration.ofMinutes(15),
+                Duration.ofMinutes(20),
                 Duration.ofSeconds(2)));
     decoder.decode(validToken());
 
@@ -138,7 +138,7 @@ class JwtDecoderConfigTest {
             new PlatformSecurityProperties.Jwks(
                 Duration.ofMinutes(5),
                 Duration.ofSeconds(10),
-                Duration.ofMinutes(15),
+                Duration.ofMinutes(20),
                 Duration.ofMillis(500)));
     jwks.delayResponses(Duration.ofSeconds(10));
     long started = System.nanoTime();
