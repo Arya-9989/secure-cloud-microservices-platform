@@ -854,3 +854,8 @@ body {
 #swagger-ui .swagger-ui .schemes-server-container:has(select option:only-child) {
   display: none;
 }
+
+/* Authorize stays at the right edge, with or without the server picker. */
+#swagger-ui .swagger-ui .scheme-container .auth-wrapper {
+  margin-left: auto;
+}
