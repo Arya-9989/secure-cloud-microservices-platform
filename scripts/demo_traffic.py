@@ -57,6 +57,9 @@ class Client:
                 return error.code, json.loads(raw) if raw else None
             except json.JSONDecodeError:
                 return error.code, None
+        except (urllib.error.URLError, TimeoutError):
+            # A slow or briefly unavailable stack must not end the whole run.
+            return 0, None
 
 
 def main() -> None:
