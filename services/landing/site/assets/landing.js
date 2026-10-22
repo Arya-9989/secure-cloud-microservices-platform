@@ -211,9 +211,35 @@ function setupProbes() {
 // ---------------------------------------------------------------- local nav
 
 function setupNav() {
+  const nav = document.querySelector(".localnav-links");
   const links = [...document.querySelectorAll(".localnav-links a[href^='#']")];
-  if (!links.length || !("IntersectionObserver" in window)) return;
+  if (!nav || !links.length || !("IntersectionObserver" in window)) return;
   const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+
+  // One underline that slides to the active link (a transform only), instead of
+  // one per link blinking on and off. Created here, so without JavaScript there
+  // is nothing to slide and nothing is missing.
+  const ink = document.createElement("span");
+  ink.className = "nav-ink";
+  ink.setAttribute("aria-hidden", "true");
+  nav.append(ink);
+  nav.classList.add("has-ink");
+  let active = null;
+  let frame = 0;
+  const placeInk = () => {
+    frame = 0;
+    if (!active || !active.offsetWidth) {
+      ink.classList.remove("is-on");
+      return;
+    }
+    ink.style.transform = `translateX(${active.offsetLeft}px) scaleX(${active.offsetWidth})`;
+    ink.classList.add("is-on");
+  };
+  const queueInk = () => {
+    if (!frame) frame = requestAnimationFrame(placeInk);
+  };
+  if ("ResizeObserver" in window) new ResizeObserver(queueInk).observe(nav);
+
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -221,7 +247,9 @@ function setupNav() {
         for (const a of links) a.removeAttribute("aria-current");
         // Sections without a nav link (the hero, the closing call to action)
         // clear the highlight instead of leaving the last one lit.
-        byId.get(entry.target.id)?.setAttribute("aria-current", "true");
+        active = byId.get(entry.target.id) || null;
+        active?.setAttribute("aria-current", "true");
+        queueInk();
       }
     },
     { rootMargin: "-45% 0px -50% 0px" },

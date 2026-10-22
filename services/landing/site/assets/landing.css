@@ -209,6 +209,40 @@ pre {
   background: var(--text);
 }
 
+/* With JavaScript, one shared underline slides between links (landing.js). It is
+ * a 1px box scaled to the link's width, so the move is a transform only. */
+.localnav-links {
+  position: relative;
+}
+
+.has-ink a[aria-current="true"]::after {
+  content: none;
+}
+
+.nav-ink {
+  position: absolute;
+  left: 0;
+  bottom: 3px;
+  width: 1px;
+  height: 1px;
+  background: var(--text);
+  opacity: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.nav-ink.is-on {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-ink {
+    transition:
+      transform 320ms var(--ease),
+      opacity 180ms var(--ease);
+  }
+}
+
 @media (max-width: 900px) {
   .localnav-links {
     display: none;
