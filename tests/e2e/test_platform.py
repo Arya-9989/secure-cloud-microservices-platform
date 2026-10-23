@@ -312,6 +312,7 @@ class TestObservability:
                 "orders-service": "up",
                 "gateway": "up",
                 "prometheus": "up",
+                "alertmanager": "up",
             }
 
         eventually(all_up)

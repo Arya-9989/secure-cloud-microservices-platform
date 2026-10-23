@@ -130,6 +130,10 @@ spec:
               value: "true"
             - name: API_DOCS_ENABLED
               value: "false"
+            - name: OAUTH_RESOURCES # resources service clients may request tokens for
+              value: urn:secure-platform:orders-service
+            - name: JWT_SIGNER # `vault`: see docs/adr/0007 and the Helm chart's authService.vault
+              value: local
           envFrom:
             - configMapRef:
                 name: platform-config

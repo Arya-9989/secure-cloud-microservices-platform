@@ -4,6 +4,8 @@ import uuid
 from typing import ClassVar
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.auth.hashers import check_password, make_password
+from django.core.validators import RegexValidator
 from django.db import models
 
 from .managers import UserManager
@@ -53,6 +55,7 @@ class RevocationReason(models.TextChoices):
     LOGOUT = "LOGOUT", "Logged out"
     REUSE_DETECTED = "REUSE_DETECTED", "Family revoked after token reuse"
     ACCOUNT_DISABLED = "ACCOUNT_DISABLED", "Account disabled or role changed"
+    PASSWORD_CHANGED = "PASSWORD_CHANGED", "Password changed by the account holder"
 
 
 class RefreshToken(models.Model):
@@ -88,3 +91,77 @@ class RefreshToken(models.Model):
 
     def __str__(self) -> str:
         return f"RefreshToken({self.id}, family={self.family_id})"
+
+
+# Scopes a *machine* client may hold (OAuth 2.0 client credentials). Disjoint from
+# ROLE_SCOPES on purpose: a client token can never act as a customer or an admin.
+CLIENT_SCOPES: dict[str, str] = {
+    "orders:fulfil": "Read the fulfilment queue and mark orders shipped or delivered",
+}
+
+
+class OAuthClient(models.Model):
+    """A service that authenticates with client credentials (RFC 6749 section 4.4).
+
+    Only an Argon2 hash of the secret is stored. ``audiences`` are the resource
+    identifiers (RFC 8707) the client may request tokens for; ``require_dpop``
+    makes every token sender-constrained (RFC 9449).
+    """
+
+    client_id = models.CharField(
+        max_length=64,
+        unique=True,
+        validators=[RegexValidator(r"^[a-z][a-z0-9-]{2,63}$", "lower-case letters, digits, -")],
+    )
+    name = models.CharField(max_length=200, blank=True, default="")
+    secret_hash = models.CharField(max_length=256)
+    scopes = models.JSONField(default=list)
+    audiences = models.JSONField(default=list)
+    require_dpop = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("client_id",)
+
+    def __str__(self) -> str:
+        return self.client_id
+
+    def set_secret(self, raw: str) -> None:
+        self.secret_hash = make_password(raw)
+
+    def check_secret(self, raw: str) -> bool:
+        return check_password(raw, self.secret_hash)
+
+
+class AuditAction(models.TextChoices):
+    ADMIN_USER_UPDATED = "ADMIN_USER_UPDATED", "An administrator changed a role or status"
+    PASSWORD_CHANGED = "PASSWORD_CHANGED", "The account holder changed their password"
+    ACCOUNT_DELETED = "ACCOUNT_DELETED", "The account holder deleted their account"
+    OAUTH_CLIENT_PROVISIONED = "OAUTH_CLIENT_PROVISIONED", "A service client was created or changed"
+
+
+class AuditEvent(models.Model):
+    """An append-only record of a security-relevant change (who did what to whom, when).
+
+    Identities are stored as ids, never emails, so the trail survives an account's
+    erasure without keeping its personal data. Nothing in the API updates or deletes
+    these rows.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    occurred_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    action = models.CharField(max_length=40, choices=AuditAction.choices, db_index=True)
+    actor_id = models.CharField(max_length=64, blank=True, default="")  # user id or "system"
+    target_type = models.CharField(max_length=32)
+    target_id = models.CharField(max_length=64, db_index=True)
+    source_ip = models.GenericIPAddressField(null=True, blank=True)
+    request_id = models.CharField(max_length=128, blank=True, default="")
+    details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ("-occurred_at", "-id")
+
+    def __str__(self) -> str:
+        return f"{self.action} {self.target_type}:{self.target_id}"

@@ -1,0 +1,16 @@
+secure-platform {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+
+Before the first install, the namespace should carry the restricted Pod Security labels
+(kubectl apply -f deploy/k8s/namespace.yaml) and these Secrets must exist:
+  {{ .Values.authService.existingSecret }}, {{ .Values.ordersService.existingSecret }}{{ if eq .Values.authService.signer "local" }}, {{ .Values.authService.signingKeySecret }}{{ else }}, {{ .Values.authService.vault.tokenSecret }}{{ end }}
+
+Images: {{ include "platform.image" (list . .Values.authService.image) }}
+        {{ include "platform.image" (list . .Values.ordersService.image) }}
+{{- if or (not .Values.authService.image.digest) (not .Values.ordersService.image.digest) }}
+Pin image digests (authService.image.digest, ordersService.image.digest) in production:
+the admission policy in deploy/k8s/admission verifies them against CI's signature.
+{{- end }}
+{{- if .Values.ingress.enabled }}
+
+API: https://{{ .Values.ingress.host }}/api/v1/...
+{{- end }}

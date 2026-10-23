@@ -41,4 +41,6 @@ def problem_exception_handler(exc: Exception, context: dict[str, Any]) -> Respon
 
     response.data = problem
     response.content_type = PROBLEM_JSON
+    if status == 503 and "Retry-After" not in response:
+        response["Retry-After"] = "5"  # a dependency (e.g. the KMS) is briefly unavailable
     return response

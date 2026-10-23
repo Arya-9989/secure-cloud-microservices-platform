@@ -26,6 +26,8 @@ from accounts.tokens import (
     rotate_refresh_token,
 )
 
+from .conftest import local_private_key
+
 pytestmark = pytest.mark.django_db
 
 
@@ -33,7 +35,7 @@ def _sign(claims: dict[str, Any], **headers: Any) -> str:
     keys = get_key_set()
     return jwt.encode(
         claims,
-        keys.signing.private_key,
+        local_private_key(),
         algorithm="RS256",
         headers={"kid": keys.signing.kid, **headers},
     )
@@ -115,8 +117,8 @@ class TestAccessTokens:
     def test_hs256_key_confusion_is_rejected(self, user: User) -> None:
         # Classic attack: sign with HMAC using the *public* key as the secret.
         public_pem = (
-            get_key_set()
-            .signing.private_key.public_key()
+            local_private_key()
+            .public_key()
             .public_bytes(
                 serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
             )

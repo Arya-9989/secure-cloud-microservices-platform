@@ -11,6 +11,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +29,7 @@ public final class JwksTestServer implements AutoCloseable {
   private final ExecutorService executor = Executors.newCachedThreadPool();
   private final List<JWK> publishedKeys = new CopyOnWriteArrayList<>();
   private final AtomicInteger requests = new AtomicInteger();
+  private final Map<String, String> lastHeaders = new ConcurrentHashMap<>();
   private volatile int failureStatus;
   private volatile Duration delay = Duration.ZERO;
 
@@ -45,6 +48,10 @@ public final class JwksTestServer implements AutoCloseable {
           "/.well-known/jwks.json",
           exchange -> {
             jwks.requests.incrementAndGet();
+            jwks.lastHeaders.clear();
+            exchange
+                .getRequestHeaders()
+                .forEach((name, values) -> jwks.lastHeaders.put(name.toLowerCase(), values.get(0)));
             try {
               Thread.sleep(jwks.delay);
             } catch (InterruptedException e) {
@@ -90,6 +97,11 @@ public final class JwksTestServer implements AutoCloseable {
 
   public String jwkSetUri() {
     return "http://127.0.0.1:" + server.getAddress().getPort() + "/.well-known/jwks.json";
+  }
+
+  /** A header of the most recent JWKS request (lower-case name), or null. */
+  public String lastRequestHeader(String name) {
+    return lastHeaders.get(name.toLowerCase());
   }
 
   public int requestCount() {

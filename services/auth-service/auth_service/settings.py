@@ -105,9 +105,32 @@ JWT_AUDIENCE = env_str("JWT_AUDIENCE", "secure-platform-api")
 JWT_PRIVATE_KEY_FILE = env_str("JWT_PRIVATE_KEY_FILE", "/run/secrets/jwt-private-key.pem")
 JWT_ADDITIONAL_PUBLIC_KEY_FILES = env_list("JWT_ADDITIONAL_PUBLIC_KEY_FILES")
 JWT_CLOCK_SKEW_SECONDS = env_int("JWT_CLOCK_SKEW_SECONDS", 30)
+# Who signs tokens (docs/adr/0007-kms-signing-and-rotation.md): the PEM file above, or
+# Vault transit, where the private key never leaves Vault.
+JWT_SIGNER = env_str("JWT_SIGNER", "local")
+if JWT_SIGNER not in {"local", "vault"}:
+    raise ImproperlyConfigured("JWT_SIGNER must be 'local' or 'vault'")
+VAULT_ADDR = env_str("VAULT_ADDR", "http://vault:8200")
+VAULT_TOKEN_FILE = env_str("VAULT_TOKEN_FILE", "/run/secrets/vault-token")
+JWT_VAULT_KEY = env_str("JWT_VAULT_KEY", "auth-jwt")
+JWT_VAULT_MOUNT = env_str("JWT_VAULT_MOUNT", "transit")
+# A new key version is published this long before it signs (> resource servers' JWKS
+# cache TTL + JWT_KEYSET_REFRESH_SECONDS), and the key set is re-read this often.
+JWT_KEY_PUBLISH_AHEAD_SECONDS = env_int("JWT_KEY_PUBLISH_AHEAD_SECONDS", 360)
+JWT_KEYSET_REFRESH_SECONDS = env_int("JWT_KEYSET_REFRESH_SECONDS", 30)
 ACCESS_TOKEN_TTL_SECONDS = env_int("ACCESS_TOKEN_TTL_SECONDS", 900)
 REFRESH_TOKEN_TTL_SECONDS = env_int("REFRESH_TOKEN_TTL_SECONDS", 7 * 24 * 3600)
 REFRESH_SESSION_MAX_SECONDS = env_int("REFRESH_SESSION_MAX_SECONDS", 30 * 24 * 3600)
+
+# OAuth 2.0 client credentials for services (docs/adr/0006-client-credentials-and-dpop.md).
+# Resource identifiers (RFC 8707) a client may request a token for; each becomes `aud`.
+OAUTH_RESOURCES = env_list("OAUTH_RESOURCES", "urn:secure-platform:orders-service")
+CLIENT_TOKEN_TTL_SECONDS = env_int("CLIENT_TOKEN_TTL_SECONDS", 300)
+# DPoP (RFC 9449): how old a proof may be, how long a server nonce stays valid, and
+# whether proofs must carry one (makes pre-computed proofs useless).
+DPOP_PROOF_MAX_AGE_SECONDS = env_int("DPOP_PROOF_MAX_AGE_SECONDS", 60)
+DPOP_NONCE_LIFETIME_SECONDS = env_int("DPOP_NONCE_LIFETIME_SECONDS", 300)
+DPOP_REQUIRE_NONCE = env_bool("DPOP_REQUIRE_NONCE", default=True)
 
 # --------------------------------------------------------------------------- REST framework
 REST_FRAMEWORK = {
@@ -128,6 +151,9 @@ REST_FRAMEWORK = {
         "login_account": env_str("LOGIN_RATE_PER_ACCOUNT", "5/min"),
         "register": env_str("REGISTER_RATE_PER_IP", "10/hour"),
         "refresh": env_str("REFRESH_RATE_PER_IP", "60/min"),
+        "client_token_ip": env_str("CLIENT_TOKEN_RATE_PER_IP", "60/min"),
+        "account_change": env_str("ACCOUNT_CHANGE_RATE_PER_ACCOUNT", "10/hour"),
+        "client_token_client": env_str("CLIENT_TOKEN_RATE_PER_CLIENT", "30/min"),
     },
 }
 

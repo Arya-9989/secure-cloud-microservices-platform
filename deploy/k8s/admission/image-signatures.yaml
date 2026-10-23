@@ -1,0 +1,53 @@
+# Every platform image must be signed by this repository's CI on main and carry a
+# signed SBOM; otherwise the pod (or the Deployment/Job creating it: autogen) is
+# rejected. Fails closed: if signatures cannot be checked, nothing is admitted.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: secure-platform-signed-images
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 15
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: secure-platform
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchImageReferences:
+    - glob: "ghcr.io/arya-9989/secure-cloud-microservices-platform/*"
+  validationConfigurations:
+    mutateDigest: true # run exactly the digest that was verified, not a movable tag
+    verifyDigest: true
+    required: true
+  attestors:
+    - name: ci
+      cosign:
+        keyless:
+          identities:
+            # The Fulcio certificate GitHub's OIDC token earns: this workflow, this branch.
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/Arya-9989/secure-cloud-microservices-platform/.github/workflows/ci.yml@refs/heads/main
+        ctlog:
+          url: https://rekor.sigstore.dev
+  attestations:
+    - name: sbom
+      intoto:
+        type: https://spdx.dev/Document
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.ci])).all(n, n > 0) &&
+        (!has(images.initContainers) ||
+          images.initContainers.map(image, verifyImageSignatures(image, [attestors.ci])).all(n, n > 0))
+      message: the image is not signed by the platform's CI workflow on main
+    - expression: >-
+        images.containers.map(image, verifyAttestationSignatures(image, attestations.sbom, [attestors.ci])).all(n, n > 0)
+      message: the image has no SBOM attestation signed by the platform's CI workflow

@@ -1,5 +1,5 @@
 // Jenkins pipeline equivalent to .github/workflows/ci.yml, for teams that run
-// Jenkins. Requires: Docker (with the Compose plugin), kubectl and Python 3 on
+// Jenkins. Requires: Docker (with the Compose plugin), kubectl, Helm and Python 3 on
 // the agents, the Docker Pipeline and JUnit plugins, and (for publishing) a
 // "ghcr-credentials" username/token credential.
 
@@ -16,7 +16,11 @@ pipeline {
         TRIVY_IMAGE = 'aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c'
         UV_IMAGE    = 'ghcr.io/astral-sh/uv:0.13.5-python3.12-trixie-slim'
         PROM_IMAGE  = 'prom/prometheus:v3.15.0'
+        JAEGER_IMAGE = 'jaegertracing/jaeger:2.20.0'
+        ALERTMANAGER_IMAGE = 'prom/alertmanager:v0.34.1'
+        K6_IMAGE    = 'grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34'
         PG_IMAGE    = 'postgres:17.11-alpine'
+        VAULT_IMAGE = 'hashicorp/vault:2.1.2'
         CRD_SCHEMAS = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
         REGISTRY    = 'ghcr.io/arya-9989/secure-cloud-microservices-platform'
     }
@@ -29,10 +33,12 @@ pipeline {
                     steps {
                         script {
                             // Like CI, the suite runs against PostgreSQL (the refresh-token
-                            // concurrency tests need real row locks).
+                            // concurrency tests need real row locks) and Vault (the KMS signer).
                             docker.image(env.PG_IMAGE).withRun('-e POSTGRES_PASSWORD=ci-only-password -e POSTGRES_DB=auth') { pg ->
-                                docker.image(env.UV_IMAGE).inside("--link ${pg.id}:postgres -e UV_CACHE_DIR=/tmp/uv-cache " +
-                                        '-e DATABASE_URL=postgres://postgres:ci-only-password@postgres:5432/auth') {
+                              docker.image(env.VAULT_IMAGE).withRun('-e VAULT_DEV_ROOT_TOKEN_ID=ci-only-root-token -e SKIP_SETCAP=true') { vault ->
+                                docker.image(env.UV_IMAGE).inside("--link ${pg.id}:postgres --link ${vault.id}:vault -e UV_CACHE_DIR=/tmp/uv-cache " +
+                                        '-e DATABASE_URL=postgres://postgres:ci-only-password@postgres:5432/auth ' +
+                                        '-e VAULT_ADDR=http://vault:8200 -e VAULT_TOKEN=ci-only-root-token') {
                                     dir('services/auth-service') {
                                         sh 'uv sync --locked'
                                         sh 'uv run ruff check . && uv run ruff format --check .'
@@ -50,6 +56,7 @@ pipeline {
                                         '''
                                     }
                                 }
+                              }
                             }
                         }
                     }
@@ -92,22 +99,42 @@ pipeline {
                     agent any
                     steps {
                         sh '''
-                            kubectl kustomize deploy/k8s > k8s.yaml
-                            docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
-                                -strict -summary -kubernetes-version 1.33.0 \
-                                -schema-location default -schema-location "$CRD_SCHEMAS" - < k8s.yaml
+                            for dir in deploy/k8s deploy/k8s/admission tests/admission; do
+                                kubectl kustomize "$dir" > k8s.yaml
+                                docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+                                    -strict -summary -kubernetes-version 1.33.0 \
+                                    -schema-location default -schema-location "$CRD_SCHEMAS" - < k8s.yaml
+                            done
                             for args in "check config /etc/prometheus/prometheus.yml" "test rules /etc/prometheus/alerts.test.yml"; do
                                 docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
                                     --entrypoint promtool "$PROM_IMAGE" $args
                             done
+                            docker run --rm -v "$PWD/observability/jaeger:/etc/jaeger:ro" \
+                                "$JAEGER_IMAGE" validate --config /etc/jaeger/config.yaml
+                            docker run --rm -v "$PWD/observability/alertmanager:/etc/alertmanager:ro" \
+                                --entrypoint amtool "$ALERTMANAGER_IMAGE" check-config /etc/alertmanager/alertmanager.yml
+                            docker run --rm -v "$PWD/observability/alertmanager:/etc/alertmanager:ro" \
+                                --entrypoint sh "$ALERTMANAGER_IMAGE" /etc/alertmanager/routes.test.sh
                             python3 scripts/init_env.py --force
                             docker compose config --quiet
+                            helm lint deploy/helm/secure-platform --strict
+                            helm template platform deploy/helm/secure-platform --namespace secure-platform > helm.yaml
+                            docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+                                -strict -summary -kubernetes-version 1.33.0 \
+                                -schema-location default -schema-location "$CRD_SCHEMAS" - < helm.yaml
+                            kubectl kustomize deploy/k8s > kustomize.yaml
+                            docker run --rm -v "$PWD/deploy/argocd:/argocd:ro" ghcr.io/yannh/kubeconform:v0.7.0 \
+                                -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" \
+                                /argocd/project.yaml /argocd/applications.yaml
                         '''
                         sh '''
                             docker run --rm -v "$PWD:/src" -w /src -e UV_CACHE_DIR=/tmp/uv-cache "$UV_IMAGE" sh -c '
                                 uv sync --locked --project tests/e2e &&
-                                uv run --project tests/e2e ruff check tests/e2e scripts &&
-                                uv run --project tests/e2e ruff format --check tests/e2e scripts &&
+                                uv run --project tests/e2e python scripts/check_helm_kustomize.py kustomize.yaml helm.yaml &&
+                                uv run --project tests/e2e ruff check tests/e2e scripts observability &&
+                                uv run --project tests/e2e ruff format --check tests/e2e scripts observability &&
+                                uv run --project tests/e2e mypy --strict observability/alert-sink &&
+                                uv run --project tests/e2e pytest -p no:cacheprovider --rootdir observability/alert-sink observability/alert-sink &&
                                 cd tests/e2e && uv run mypy .'
                         '''
                     }
@@ -141,6 +168,11 @@ pipeline {
                         GATEWAY_HTTPS_PORT   = '18443'
                         PROMETHEUS_PORT      = '19090'
                         GRAFANA_PORT         = '13000'
+                        JAEGER_PORT          = '17686'
+                        ALERTMANAGER_PORT    = '19093'
+                        ALERT_SINK_PORT      = '19097'
+                        COMPOSE_PROFILES     = 'tracing'
+                        TRACING_ENABLED      = 'true'
                     }
                     steps {
                         sh 'python3 scripts/init_env.py --force'
@@ -149,7 +181,15 @@ pipeline {
                             docker run --rm --network host -v "$PWD:/src" -w /src/tests/e2e \
                                 -e GATEWAY_URL=http://localhost:18080 -e GATEWAY_HTTPS_URL=https://localhost:18443 \
                                 -e PROMETHEUS_URL=http://localhost:19090 -e GRAFANA_URL=http://localhost:13000 \
+                                -e JAEGER_URL=http://localhost:17686 -e TRACING_ENABLED=true \
+                                -e ALERTMANAGER_URL=http://localhost:19093 -e ALERT_SINK_URL=http://localhost:19097 \
                                 "$UV_IMAGE" uv run --locked pytest -v --junitxml=reports/junit.xml
+                        '''
+                        // Latency SLOs: k6 exits non-zero when a threshold fails.
+                        sh '''
+                            docker run --rm --network host -v "$PWD/tests/load:/load:ro" \
+                                -e BASE_URL=http://localhost:18080 \
+                                "$K6_IMAGE" run /load/platform.js
                         '''
                     }
                     post {

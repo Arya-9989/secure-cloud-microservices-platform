@@ -1,0 +1,76 @@
+# The platform as two Argo CD Applications in the `secure-platform` project.
+#
+# 1. platform-admission (sync wave -1): the cluster-scoped admission policies from
+#    deploy/k8s/admission. They go first, so no unsigned image is ever admitted.
+# 2. secure-platform: the Helm chart in deploy/helm/secure-platform. Its migration Job is
+#    a Helm hook, which Argo CD runs as a PreSync hook, before the new pods roll out.
+#
+# Production pins images by digest (the admission policy verifies the CI signature of
+# exactly that digest); bump `targetRevision` / the digests through pull requests.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-admission
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: secure-platform
+  source:
+    repoURL: https://github.com/Arya-9989/secure-cloud-microservices-platform.git
+    targetRevision: main
+    path: deploy/k8s/admission
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: secure-platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: secure-platform
+  source:
+    repoURL: https://github.com/Arya-9989/secure-cloud-microservices-platform.git
+    targetRevision: main
+    path: deploy/helm/secure-platform
+    helm:
+      releaseName: platform
+      valueFiles:
+        - values.yaml
+      # Override per environment here (or with a values file in a config repository).
+      valuesObject:
+        ingress:
+          host: api.example.com
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: secure-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true # drift from Git (a manual kubectl edit) is reverted
+    syncOptions:
+      - ServerSideApply=true
+      - PruneLast=true
+      - CreateNamespace=false # the namespace carries Pod Security labels: deploy/k8s/namespace.yaml
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }
+  # The HPA owns the replica count.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers: [/spec/replicas]

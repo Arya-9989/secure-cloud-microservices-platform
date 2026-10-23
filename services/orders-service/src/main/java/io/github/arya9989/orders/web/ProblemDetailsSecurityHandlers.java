@@ -80,7 +80,8 @@ public class ProblemDetailsSecurityHandlers
     commence(request, response, ex);
   }
 
-  private void write(HttpServletResponse response, HttpStatus status, String detail)
+  /** Writes an RFC 9457 problem with the request id; the caller sets any challenge headers. */
+  public void write(HttpServletResponse response, HttpStatus status, String detail)
       throws IOException {
     ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
     String requestId = RequestIdFilter.currentRequestId();

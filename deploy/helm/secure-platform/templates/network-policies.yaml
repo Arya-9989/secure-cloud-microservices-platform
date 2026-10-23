@@ -1,0 +1,114 @@
+{{- if .Values.networkPolicies.enabled }}
+{{- $n := .Values.networkPolicies -}}
+# Zero-trust networking inside the namespace: deny everything, then allow exactly the
+# flows the platform needs (the same policies as deploy/k8s/network-policies.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auth-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: auth-service
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: # the ingress controller
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $n.ingressNamespace }}
+      ports: [{ protocol: TCP, port: 8000 }]
+    - from: # JWKS fetches by the resource server
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orders-service
+      ports: [{ protocol: TCP, port: 8000 }]
+    - from: # Prometheus
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $n.monitoringNamespace }}
+      ports: [{ protocol: TCP, port: 9100 }]
+  egress:
+    - ports: [{ protocol: TCP, port: 5432 }] # managed PostgreSQL
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auth-service-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: auth-service-migrate
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ protocol: TCP, port: 5432 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orders-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orders-service
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $n.ingressNamespace }}
+      ports: [{ protocol: TCP, port: 8080 }]
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $n.monitoringNamespace }}
+      ports: [{ protocol: TCP, port: 8081 }]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: auth-service
+      ports: [{ protocol: TCP, port: 8000 }]
+    - ports: [{ protocol: TCP, port: 5432 }]
+{{- end }}

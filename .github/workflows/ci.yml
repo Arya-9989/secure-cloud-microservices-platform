@@ -35,6 +35,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s
           --health-timeout 3s --health-retries 20
+      # Vault transit for the KMS signer tests (tests/test_vault.py); dev mode by default.
+      vault:
+        image: hashicorp/vault:2.1.2
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: ci-only-root-token
+          SKIP_SETCAP: "true"
+        ports: ["8200:8200"]
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8200/v1/sys/health" --health-interval 5s
+          --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,9 +60,11 @@ jobs:
         run: uv run ruff check . && uv run ruff format --check .
       - name: Type-check (mypy --strict)
         run: uv run mypy .
-      - name: Test against PostgreSQL
+      - name: Test against PostgreSQL and Vault
         env:
           DATABASE_URL: postgres://postgres:ci-only-password@localhost:5432/auth
+          VAULT_ADDR: http://localhost:8200
+          VAULT_TOKEN: ci-only-root-token
         run: uv run pytest --cov --cov-report=term-missing:skip-covered
       - name: Audit runtime dependencies (pip-audit)
         run: |
@@ -118,13 +130,41 @@ jobs:
           cache-dependency-glob: tests/e2e/uv.lock
       - name: Validate Kubernetes manifests (kustomize + kubeconform)
         run: |
-          kubectl kustomize deploy/k8s > "$RUNNER_TEMP/k8s.yaml"
-          docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
-            -strict -summary -kubernetes-version 1.33.0 \
-            -schema-location default -schema-location "$CRD_SCHEMAS" \
-            - < "$RUNNER_TEMP/k8s.yaml"
+          for dir in deploy/k8s deploy/k8s/admission tests/admission; do
+            kubectl kustomize "$dir" > "$RUNNER_TEMP/k8s.yaml"
+            docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+              -strict -summary -kubernetes-version 1.33.0 \
+              -schema-location default -schema-location "$CRD_SCHEMAS" \
+              - < "$RUNNER_TEMP/k8s.yaml"
+          done
         env:
-          # Schemas for the Traefik Middleware CRDs in deploy/k8s/middlewares.yaml.
+          # CRD schemas: Traefik Middleware (deploy/k8s), Kyverno ImageValidatingPolicy (admission).
+          CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+      - name: Install Helm (checksum-verified release)
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/helm.tgz" https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz
+          echo "86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb  $RUNNER_TEMP/helm.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP" linux-amd64/helm
+          sudo install -m 0755 "$RUNNER_TEMP/linux-amd64/helm" /usr/local/bin/helm
+      - name: Helm chart (lint, template | kubeconform, parity with Kustomize) and Argo CD manifests
+        run: |
+          chart=deploy/helm/secure-platform
+          helm lint "$chart" --strict
+          for values in "" "--set authService.signer=vault,authService.vault.address=http://vault:8200,authService.vault.tokenSecret=auth-vault-token,tracing.enabled=true"; do
+            # shellcheck disable=SC2086 # $values is a list of flags
+            helm template platform "$chart" --namespace secure-platform $values > "$RUNNER_TEMP/helm.yaml"
+            docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+              -strict -summary -kubernetes-version 1.33.0 \
+              -schema-location default -schema-location "$CRD_SCHEMAS" - < "$RUNNER_TEMP/helm.yaml"
+          done
+          helm template platform "$chart" --namespace secure-platform > "$RUNNER_TEMP/helm.yaml"
+          kubectl kustomize deploy/k8s > "$RUNNER_TEMP/kustomize.yaml"
+          uv run --locked --project tests/e2e python scripts/check_helm_kustomize.py \
+            "$RUNNER_TEMP/kustomize.yaml" "$RUNNER_TEMP/helm.yaml"
+          docker run --rm -v "$PWD/deploy/argocd:/argocd:ro" ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" \
+            /argocd/project.yaml /argocd/applications.yaml
+        env:
           CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
       - name: Check Prometheus config and unit-test the alert rules (promtool)
         run: |
@@ -132,6 +172,16 @@ jobs:
             docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
               --entrypoint promtool prom/prometheus:v3.15.0 $args
           done
+      - name: Validate the Jaeger config (compose profile tracing)
+        run: |
+          docker run --rm -v "$PWD/observability/jaeger:/etc/jaeger:ro" \
+            jaegertracing/jaeger:2.20.0 validate --config /etc/jaeger/config.yaml
+      - name: Check Alertmanager config and unit-test the routing tree (amtool)
+        run: |
+          docker run --rm -v "$PWD/observability/alertmanager:/etc/alertmanager:ro" \
+            --entrypoint amtool prom/alertmanager:v0.34.1 check-config /etc/alertmanager/alertmanager.yml
+          docker run --rm -v "$PWD/observability/alertmanager:/etc/alertmanager:ro" \
+            --entrypoint sh prom/alertmanager:v0.34.1 /etc/alertmanager/routes.test.sh
       - name: Validate compose file
         run: |
           python3 scripts/init_env.py
@@ -139,14 +189,22 @@ jobs:
       - name: Lint e2e tests and scripts
         run: |
           uv sync --locked --project tests/e2e
-          uv run --project tests/e2e ruff check tests/e2e scripts
-          uv run --project tests/e2e ruff format --check tests/e2e scripts
+          uv run --project tests/e2e ruff check tests/e2e scripts observability
+          uv run --project tests/e2e ruff format --check tests/e2e scripts observability
           cd tests/e2e && uv run mypy .
+      - name: Type-check and unit-test the local alert sink
+        run: |
+          uv run --project tests/e2e mypy --strict observability/alert-sink
+          uv run --project tests/e2e pytest -p no:cacheprovider --rootdir observability/alert-sink observability/alert-sink
 
   e2e:
     name: End-to-end (docker compose)
     needs: [auth-service, orders-service, landing, platform-config]
     runs-on: ubuntu-24.04
+    env:
+      # The whole stack with tracing on, so the trace assertions in test_tracing.py run.
+      COMPOSE_PROFILES: tracing
+      TRACING_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -163,6 +221,23 @@ jobs:
       - name: Run e2e suite through the gateway
         working-directory: tests/e2e
         run: uv run --locked pytest -v
+      - name: Load test with latency SLOs (k6, fails on any threshold)
+        run: |
+          mkdir -p "$RUNNER_TEMP/k6"
+          docker run --rm --network host --user "$(id -u):$(id -g)" \
+            -v "$PWD/tests/load:/load:ro" -v "$RUNNER_TEMP/k6:/out" \
+            -e BASE_URL=http://localhost:8080 \
+            "$K6_IMAGE" run --summary-export /out/summary.json /load/platform.js
+        env:
+          K6_IMAGE: grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34
+      - name: Keep the k6 summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: k6-summary
+          path: ${{ runner.temp }}/k6/summary.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Dump logs on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail 200
@@ -170,14 +245,34 @@ jobs:
         if: always()
         run: docker compose down --volumes --remove-orphans
 
+  admission:
+    name: Admission policies on kind (cosign + Kyverno)
+    needs: [platform-config]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Install kind (checksum-verified release binary)
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/kind" https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  $RUNNER_TEMP/kind" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/kind" /usr/local/bin/kind
+      - name: Signed images are admitted, everything else is rejected
+        run: bash tests/admission/kind-admission-test.sh
+
   publish:
     name: Publish images to GHCR
-    needs: [e2e]
+    needs: [e2e, admission]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
+      id-token: write # keyless signing: GitHub's OIDC token is exchanged for a Fulcio certificate
     strategy:
       matrix:
         service: [auth-service, orders-service]
@@ -198,7 +293,8 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha,prefix=sha-,format=long
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: services/${{ matrix.service }}
           push: true
@@ -208,3 +304,31 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      # Keyless signing (docs/adr/0005-image-signing.md): the certificate binds the
+      # signature to this workflow on main; the cluster admits nothing else.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Sign the image and attest its SBOM (keyless)
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          ref="${IMAGE,,}@${DIGEST}" # GHCR paths are lower-case; sign the digest, never a tag
+          cosign sign --yes "$ref"
+          # The SPDX document BuildKit generated during the build, as a signed in-toto attestation.
+          docker buildx imagetools inspect "$ref" --format '{{ json .SBOM.SPDX }}' > "$RUNNER_TEMP/sbom.spdx.json"
+          test -s "$RUNNER_TEMP/sbom.spdx.json"
+          cosign attest --yes --type spdxjson --predicate "$RUNNER_TEMP/sbom.spdx.json" "$ref"
+      - name: Verify the signature and the attestation as the cluster will
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
+        run: |
+          ref="${IMAGE,,}@${DIGEST}"
+          cosign verify "$ref" --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          cosign verify-attestation "$ref" --type spdxjson --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          echo "signed and attested: $ref by $IDENTITY"

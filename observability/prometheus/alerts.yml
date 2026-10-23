@@ -1,5 +1,8 @@
-# Alert rules are evaluated by Prometheus (visible under /alerts). Routing them
-# to a pager needs an Alertmanager, which is listed as future work.
+# Alert rules are evaluated by Prometheus (visible under /alerts) and sent to
+# Alertmanager, which routes them on `severity` and `category`
+# (observability/alertmanager/alertmanager.yml):
+#   severity: critical  -> pager; warning -> the platform team's chat
+#   category: security  -> the security receiver, whatever the severity
 groups:
   - name: platform
     rules:
@@ -41,13 +44,13 @@ groups:
 
       - alert: RefreshTokenReuse
         expr: increase(auth_refresh_token_reuse_detected_total[15m]) > 0
-        labels: { severity: warning }
+        labels: { severity: warning, category: security }
         annotations:
           summary: "Refresh token replay detected: a session was revoked (possible token theft)"
 
       - alert: LoginBruteForce
         expr: sum(rate(auth_login_attempts_total{outcome=~"invalid_credentials|throttled"}[5m])) > 1
         for: 5m
-        labels: { severity: warning }
+        labels: { severity: warning, category: security }
         annotations:
           summary: "Sustained failed or throttled logins"

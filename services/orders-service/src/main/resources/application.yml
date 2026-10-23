@@ -73,6 +73,35 @@ management:
   observations:
     key-values:
       service: orders-service
+    enable:
+      # ~10 spans per request (one per security filter) that explain nothing.
+      spring.security: false
+  # Distributed tracing (docs/adr/0001-distributed-tracing.md). Off unless
+  # MANAGEMENT_TRACING_EXPORT_ENABLED=true (TRACING_ENABLED in compose).
+  tracing:
+    export:
+      enabled: false
+    sampling:
+      # Parent-based: a request is recorded when the gateway sampled it. Root spans
+      # (health probes, scheduled jobs, calls that bypass the gateway) never are.
+      probability: 0.0
+    propagation:
+      type: w3c # trace context only: no baggage from clients, no B3
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://jaeger:4318/v1/traces
+
+# JDBC spans (datasource-micrometer): one per connection checkout and statement.
+# Statements are recorded sanitised, never with parameter values.
+jdbc:
+  includes: connection, query
+  datasource-proxy:
+    include-parameter-values: false
+  opentelemetry:
+    metrics:
+      enabled: false # Prometheus metrics stay as they are
 
 springdoc:
   api-docs:
@@ -93,6 +122,9 @@ logging:
     json:
       add:
         service: orders-service
+      rename: # the same field names as the Python services
+        traceId: trace_id
+        spanId: span_id
   level:
     root: INFO
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: WARN

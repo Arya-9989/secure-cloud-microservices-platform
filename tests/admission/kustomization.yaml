@@ -1,0 +1,38 @@
+# The production policies with only what a local test must change: a test signing
+# key instead of the CI workflow's keyless identity (local signatures are not in
+# the public transparency log), and a local registry instead of GHCR. Everything
+# else (matching, fail-closed behaviour, digest mutation, SBOM requirement, the
+# trusted-registry rule) is exercised as shipped. Placeholders are filled in by
+# kind-admission-test.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../deploy/k8s/admission
+
+patches:
+  - target:
+      kind: ImageValidatingPolicy
+      name: secure-platform-signed-images
+    patch: |-
+      - op: replace
+        path: /spec/matchImageReferences/0/glob
+        value: "__REGISTRY__/platform/*"
+      - op: replace
+        path: /spec/attestors/0/cosign
+        value:
+          key:
+            data: __PUBLIC_KEY__
+          ctlog:
+            insecureIgnoreTlog: true
+      - op: add
+        path: /spec/credentials
+        value:
+          allowInsecureRegistry: true # the local registry speaks plain HTTP
+  - target:
+      kind: ValidatingAdmissionPolicy
+      name: secure-platform-trusted-registry
+    patch: |-
+      - op: replace
+        path: /spec/variables/0/expression
+        value: "'__REGISTRY__/platform/'"

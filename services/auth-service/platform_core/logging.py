@@ -7,7 +7,7 @@ from typing import Any
 
 from pythonjsonlogger.json import JsonFormatter
 
-from .request_context import request_id_var, user_id_var
+from .request_context import current_trace_ids, request_id_var, user_id_var
 
 
 class RequestContextFilter(logging.Filter):
@@ -24,6 +24,8 @@ class RequestContextFilter(logging.Filter):
             record.request_id = request_id_var.get()
         if getattr(record, "user_id", None) is None:
             record.user_id = user_id_var.get()
+        if getattr(record, "trace_id", None) is None:
+            record.trace_id, record.span_id = current_trace_ids()
         return True
 
 
@@ -45,6 +47,6 @@ class PlatformJsonFormatter(JsonFormatter):
     ) -> None:
         super().add_fields(log_data, record, message_dict)
         # Drop empty correlation fields (e.g. log lines emitted outside a request).
-        for key in ("request_id", "user_id"):
+        for key in ("request_id", "user_id", "trace_id", "span_id"):
             if log_data.get(key) is None:
                 log_data.pop(key, None)

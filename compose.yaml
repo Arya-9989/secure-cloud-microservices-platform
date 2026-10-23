@@ -34,6 +34,19 @@ x-auth-env: &auth-env
   LOGIN_RATE_PER_IP: ${LOGIN_RATE_PER_IP:-120/min}
   TRUST_PROXY_PROTO_HEADER: "true"
   LOG_FORMAT: json
+  # Distributed tracing (profile `tracing`, docs/adr/0001-distributed-tracing.md)
+  TRACING_ENABLED: ${TRACING_ENABLED:-false}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  OTEL_SERVICE_NAME: auth-service
+  # Token signing (docs/adr/0007-kms-signing-and-rotation.md): `local` (the PEM file) or
+  # `vault` (transit, profile `kms`). The file key's public half is always published, so
+  # switching to Vault never invalidates tokens already issued.
+  JWT_SIGNER: ${JWT_SIGNER:-local}
+  JWT_ADDITIONAL_PUBLIC_KEY_FILES: /keys/jwt-public-key.pem
+  VAULT_ADDR: http://vault:8200
+  VAULT_TOKEN_FILE: /keys/vault-token
+  JWT_KEY_PUBLISH_AHEAD_SECONDS: ${JWT_KEY_PUBLISH_AHEAD_SECONDS:-360}
+  JWT_KEYSET_REFRESH_SECONDS: ${JWT_KEYSET_REFRESH_SECONDS:-30}
 
 services:
   postgres:
@@ -67,13 +80,19 @@ services:
       - -c
       - >-
         python manage.py ensure_signing_key /keys/jwt-private-key.pem &&
+        python manage.py export_public_key /keys/jwt-private-key.pem /keys/jwt-public-key.pem &&
         python manage.py migrate --noinput &&
         python manage.py createcachetable &&
-        python manage.py bootstrap_admin
+        python manage.py bootstrap_admin &&
+        python manage.py ensure_oauth_client fulfilment --name "Warehouse fulfilment"
+        --scope orders:fulfil --audience urn:secure-platform:orders-service
+        --secret-env FULFILMENT_CLIENT_SECRET
     environment:
       <<: *auth-env
       AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
       AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:?}
+      # The warehouse's client credentials (docs/adr/0006-client-credentials-and-dpop.md).
+      FULFILMENT_CLIENT_SECRET: ${FULFILMENT_CLIENT_SECRET:?run python scripts/init_env.py first}
     volumes:
       - jwt-keys:/keys
     networks: [backend]
@@ -95,6 +114,7 @@ services:
     networks: [backend]
     depends_on:
       auth-init: { condition: service_completed_successfully }
+      vault-init: { condition: service_completed_successfully, required: false }
     deploy:
       resources:
         limits: { memory: 384m, cpus: "1.0" }
@@ -110,6 +130,10 @@ services:
       PLATFORM_SECURITY_ISSUER: ${JWT_ISSUER:-urn:secure-platform:auth-service}
       PLATFORM_SECURITY_AUDIENCE: ${JWT_AUDIENCE:-secure-platform-api}
       PLATFORM_SECURITY_JWK_SET_URI: http://auth-service:8000/.well-known/jwks.json
+      MANAGEMENT_TRACING_EXPORT_ENABLED: ${TRACING_ENABLED:-false}
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      # DPoP nonces must verify on every replica, so they share this HMAC key (base64url).
+      PLATFORM_SECURITY_DPOP_NONCE_SECRET: ${DPOP_NONCE_SECRET:?run python scripts/init_env.py first}
     tmpfs:
       - /tmp:size=64m,uid=65532,gid=65532
     networks: [backend]
@@ -136,6 +160,8 @@ services:
     <<: [*hardening, *logging]
     user: "65532:65532"
     command: ["--configFile=/etc/traefik/traefik.yml"]
+    environment:
+      TRACING_ENABLED: ${TRACING_ENABLED:-false} # read by dynamic/routes.yml
     tmpfs:
       - /tmp:size=64m,uid=65532,gid=65532 # buffering middleware spills large bodies here
     ports:
@@ -173,6 +199,59 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    depends_on:
+      alertmanager: { condition: service_healthy }
+
+  # Routes Prometheus alerts by severity and category
+  # (observability/alertmanager/alertmanager.yml). Silences and notification state
+  # live in tmpfs: they reset with the container, which is fine locally.
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    <<: [*hardening, *logging]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --cluster.listen-address= # single instance: no gossip port
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./observability/alertmanager:/etc/alertmanager:ro
+    tmpfs:
+      - /alertmanager:size=16m,uid=65534,gid=65534
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      alert-sink: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { memory: 64m, cpus: "0.25" }
+
+  # Local stand-in for the pager and chat receivers: records every notification
+  # Alertmanager sends (GET /notifications) so delivery can be asserted.
+  alert-sink:
+    image: python:3.12.15-slim-trixie
+    <<: [*hardening, *logging]
+    user: "65534:65534"
+    command: ["python", "-I", "/app/sink.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    ports:
+      - "127.0.0.1:${ALERT_SINK_PORT:-9097}:8080"
+    volumes:
+      - ./observability/alert-sink/sink.py:/app/sink.py:ro
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { memory: 48m, cpus: "0.25" }
 
   grafana:
     image: grafana/grafana:13.2.4
@@ -204,6 +283,85 @@ services:
       retries: 10
     depends_on:
       prometheus: { condition: service_healthy }
+
+  # KMS for token signing, only with `--profile kms` (or COMPOSE_PROFILES=kms) and
+  # JWT_SIGNER=vault. Dev mode: in-memory, unsealed, a root token from .env. Local and CI
+  # use only; production runs a real Vault cluster (or a cloud KMS, see ADR 0007).
+  vault:
+    image: hashicorp/vault:2.1.2
+    profiles: [kms]
+    <<: [*hardening, *logging]
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:?run python scripts/init_env.py first}
+      SKIP_SETCAP: "true" # dev mode needs no mlock
+    ports:
+      - "127.0.0.1:${VAULT_PORT:-8200}:8200"
+    tmpfs:
+      - /vault/file:uid=100,gid=1000
+      - /vault/logs:uid=100,gid=1000
+      - /home/vault:uid=100,gid=1000 # dev mode writes the root token helper here
+      - /tmp
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
+
+  # Creates the transit key, the least-privilege signer policy and auth-service's token.
+  vault-init:
+    image: hashicorp/vault:2.1.2
+    profiles: [kms]
+    <<: *logging
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "10001:10001" # owns the token file auth-service reads
+    entrypoint: ["sh", "/init/init-transit.sh"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?}
+      HOME: /tmp
+    volumes:
+      - ./deploy/vault/init-transit.sh:/init/init-transit.sh:ro
+      - jwt-keys:/keys
+    tmpfs:
+      - /tmp
+    networks: [backend]
+    depends_on:
+      vault: { condition: service_healthy }
+      auth-init: { condition: service_completed_successfully }
+    restart: "no"
+
+  # Trace backend, only with `--profile tracing` (or COMPOSE_PROFILES=tracing) and
+  # TRACING_ENABLED=true. The UI binds to localhost; OTLP stays on the backend network.
+  jaeger:
+    # 2.20 is the newest release that still serves the query API Grafana's Jaeger
+    # datasource uses (/api/services, /api/traces); 2.21 serves only /api/v3.
+    image: jaegertracing/jaeger:2.20.0
+    profiles: [tracing]
+    <<: [*hardening, *logging]
+    user: "10001:10001"
+    command: ["--config=/etc/jaeger/config.yaml"]
+    ports:
+      - "127.0.0.1:${JAEGER_PORT:-16686}:16686"
+    volumes:
+      - ./observability/jaeger/config.yaml:/etc/jaeger/config.yaml:ro
+    tmpfs:
+      - /tmp:size=16m,uid=10001,gid=10001
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:13133/status"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
 
 networks:
   frontend: {}

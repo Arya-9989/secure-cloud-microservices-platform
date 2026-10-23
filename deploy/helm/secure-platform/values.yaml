@@ -1,0 +1,84 @@
+# Defaults render the same resources as deploy/k8s (Kustomize). Secrets are created
+# out-of-band (External Secrets, Sealed Secrets or kubectl), never by this chart:
+#   auth-service-secrets   DJANGO_SECRET_KEY, DATABASE_URL, AUTH_BOOTSTRAP_ADMIN_EMAIL,
+#                          AUTH_BOOTSTRAP_ADMIN_PASSWORD
+#   auth-signing-key       jwt-private-key.pem (only with authService.signer=local)
+#   orders-service-secrets SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME,
+#                          SPRING_DATASOURCE_PASSWORD, PLATFORM_SECURITY_DPOP_NONCE_SECRET
+
+imageRegistry: ghcr.io/arya-9989/secure-cloud-microservices-platform
+imagePullPolicy: IfNotPresent
+
+platform:
+  issuer: urn:secure-platform:auth-service
+  audience: secure-platform-api
+  # RFC 8707 resource identifier of orders-service: the `aud` of service tokens.
+  ordersResource: urn:secure-platform:orders-service
+
+authService:
+  image:
+    repository: auth-service
+    tag: main
+    digest: "" # sha256:... pins the exact signed image (preferred in production)
+  replicas: 2
+  allowedHosts: auth-service,auth-service.secure-platform.svc,api.example.com
+  existingSecret: auth-service-secrets
+  # Token signing (docs/adr/0007): `local` mounts signingKeySecret; `vault` signs in
+  # Vault transit with the token in vault.tokenSecret (key `token`).
+  signer: local
+  signingKeySecret: auth-signing-key
+  vault:
+    address: ""
+    tokenSecret: ""
+    key: auth-jwt
+  migrations:
+    enabled: true # a pre-install/pre-upgrade hook Job: replicas never race on migrations
+  resources:
+    requests: { cpu: 250m, memory: 192Mi }
+    limits: { memory: 384Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    minAvailable: 1
+
+ordersService:
+  image:
+    repository: orders-service
+    tag: main
+    digest: ""
+  replicas: 2
+  existingSecret: orders-service-secrets
+  resources:
+    requests: { cpu: 250m, memory: 384Mi }
+    limits: { memory: 640Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    minAvailable: 1
+
+# Distributed tracing (docs/adr/0001): OTLP/HTTP to a collector you run.
+tracing:
+  enabled: false
+  otlpEndpoint: http://otel-collector.monitoring:4318
+
+ingress:
+  enabled: true
+  className: traefik
+  host: api.example.com
+  tlsSecret: platform-tls # e.g. issued by cert-manager
+  # Traefik Middleware CRDs mirroring the compose gateway (gateway/dynamic/routes.yml).
+  middlewares:
+    bodyLimitBytes: 1048576
+    authRateLimit: { average: 10, period: 1s, burst: 20 }
+    apiRateLimit: { average: 50, period: 1s, burst: 100 }
+
+networkPolicies:
+  enabled: true
+  ingressNamespace: traefik # where the ingress controller runs
+  monitoringNamespace: monitoring # where Prometheus runs
