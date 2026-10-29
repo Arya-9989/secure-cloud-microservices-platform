@@ -288,7 +288,7 @@ services:
   # JWT_SIGNER=vault. Dev mode: in-memory, unsealed, a root token from .env. Local and CI
   # use only; production runs a real Vault cluster (or a cloud KMS, see ADR 0007).
   vault:
-    image: hashicorp/vault:2.1.2
+    image: hashicorp/vault:2.2.1
     profiles: [kms]
     <<: [*hardening, *logging]
     command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
@@ -314,7 +314,7 @@ services:
 
   # Creates the transit key, the least-privilege signer policy and auth-service's token.
   vault-init:
-    image: hashicorp/vault:2.1.2
+    image: hashicorp/vault:2.2.1
     profiles: [kms]
     <<: *logging
     read_only: true
