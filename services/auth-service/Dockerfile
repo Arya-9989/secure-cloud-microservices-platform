@@ -3,7 +3,7 @@
 ARG PYTHON_IMAGE=python:3.12.15-slim-trixie
 
 # ---------------------------------------------------------------------------- build
-FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM ${PYTHON_IMAGE} AS build
 COPY --from=uv /uv /usr/local/bin/uv
