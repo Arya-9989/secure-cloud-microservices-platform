@@ -233,7 +233,7 @@ services:
   # Local stand-in for the pager and chat receivers: records every notification
   # Alertmanager sends (GET /notifications) so delivery can be asserted.
   alert-sink:
-    image: python:3.12.15-slim-trixie
+    image: python:3.15.0-slim-trixie
     <<: [*hardening, *logging]
     user: "65534:65534"
     command: ["python", "-I", "/app/sink.py"]
