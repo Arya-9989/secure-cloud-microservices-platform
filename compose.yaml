@@ -254,7 +254,7 @@ services:
         limits: { memory: 48m, cpus: "0.25" }
 
   grafana:
-    image: grafana/grafana:13.2.4
+    image: grafana/grafana:13.3.0
     <<: [*hardening, *logging]
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
