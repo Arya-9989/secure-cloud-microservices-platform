@@ -27,7 +27,7 @@
       </nav>
     </div>
   </header>
-  <main id="main" class="docs-main" tabindex="-1">
+  <div id="main" class="docs-main" tabindex="-1">
     <!-- Served as HTML so it paints before Swagger UI loads; docs.css hides Swagger's own info block. -->
     <section class="docs-hero" aria-labelledby="docs-title">
       <p class="docs-eyebrow"><span class="docs-dot" aria-hidden="true"></span>orders-service</p>
@@ -42,7 +42,7 @@
       <noscript><p class="docs-noscript">The interactive reference needs JavaScript. The OpenAPI document above describes every operation.</p></noscript>
     </section>
     <div id="swagger-ui" data-openapi-url="/docs/orders/openapi.json" data-bundle="./swagger-ui-bundle.js" data-stylesheet="./swagger-ui.css"></div>
-  </main>
+  </div>
   <!-- Our own bootstrap (static/docs/orders/api-docs.js), not springdoc's swagger-initializer.js:
        no standalone preset to download and no wait for window.onload. -->
   <script src="/docs/orders/api-docs.js" defer></script>
