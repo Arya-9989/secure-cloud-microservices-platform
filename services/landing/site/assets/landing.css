@@ -184,6 +184,9 @@ pre {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
+  min-width: 44px;
+  justify-content: center;
+  scroll-margin: 4px;
   color: var(--nav-link);
   font-size: 12px;
   letter-spacing: -0.01em;
@@ -244,8 +247,32 @@ pre {
 }
 
 @media (max-width: 900px) {
+  html {
+    scroll-padding-top: 112px;
+  }
+
+  .localnav-inner {
+    flex-wrap: wrap;
+    height: auto;
+    gap: 0 12px;
+    padding-top: 8px;
+  }
+
   .localnav-links {
-    display: none;
+    order: 3;
+    flex-basis: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 4px;
+  }
+
+  .localnav-links a {
+    flex-shrink: 0;
+  }
+
+  .brand {
+    min-height: 44px;
+    font-size: 17px;
   }
 }
 
@@ -494,25 +521,18 @@ pre {
   grid-area: path;
   justify-self: start;
   max-width: 100%;
-  overflow: hidden;
   color: var(--text);
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .probe-detail {
   grid-area: detail;
-  overflow: hidden;
   color: var(--text-2);
   font-size: 14px;
   letter-spacing: -0.016em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* A failure explains itself in full; healthy details stay on one line. */
-.probe[data-state="down"] .probe-detail {
+  overflow-wrap: anywhere;
   white-space: normal;
 }
 
@@ -671,10 +691,6 @@ pre {
   .probe-status {
     justify-self: end;
     text-align: right;
-  }
-
-  .probe-detail {
-    white-space: normal;
   }
 
   .spark {

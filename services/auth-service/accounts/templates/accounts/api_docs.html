@@ -27,7 +27,7 @@
       </nav>
     </div>
   </header>
-  <div id="main" class="docs-main" tabindex="-1">
+  <main id="main" class="docs-main" tabindex="-1">
     {# Server-rendered so it paints before Swagger UI loads; docs.css hides Swagger's own info block. #}
     <section class="docs-hero" aria-labelledby="docs-title">
       <p class="docs-eyebrow"><span class="docs-dot" aria-hidden="true"></span>auth-service</p>
@@ -42,7 +42,7 @@
       <noscript><p class="docs-noscript">The interactive reference needs JavaScript. The OpenAPI document above describes every operation.</p></noscript>
     </section>
     <div id="swagger-ui" data-openapi-url="{% url 'openapi-schema' %}" data-bundle="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui-bundle.js' %}" data-stylesheet="{% static 'drf_spectacular_sidecar/swagger-ui-dist/swagger-ui.css' %}"></div>
-  </div>
+  </main>
   <script src="{% static 'accounts/api-docs.js' %}" defer></script>
 </body>
 </html>
