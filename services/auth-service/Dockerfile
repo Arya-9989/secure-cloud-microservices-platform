@@ -37,6 +37,11 @@ LABEL org.opencontainers.image.title="auth-service" \
       org.opencontainers.image.source="https://github.com/Arya-9989/secure-cloud-microservices-platform" \
       org.opencontainers.image.licenses="MIT"
 
+# Apply distro security fixes released after the base image was published.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
  && install -d -o app -g app -m 0700 /keys

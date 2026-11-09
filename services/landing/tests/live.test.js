@@ -14,9 +14,17 @@ import {
   describe,
   nextDelay,
   sparkGeometry,
+  sparkSummary,
 } from "../site/assets/live.js";
 
 const AUTH = { name: "auth-service", okLabel: "Operational", expected: "a key set" };
+
+test("sparkline text reports visible samples, latency range and failures", () => {
+  assert.equal(sparkSummary([]), "No samples yet.");
+  assert.equal(sparkSummary([null]), "Last 1 samples, oldest to newest. No successful responses. Failed requests: 1.");
+  assert.equal(sparkSummary([0.2, null, 42.7]), "Last 3 samples, oldest to newest. Round-trip range 1 to 43 ms. Failed requests: 1.");
+  assert.equal(sparkSummary([9999, ...Array(SPARK_SLOTS).fill(10)]), `Last ${SPARK_SLOTS} samples, oldest to newest. Round-trip range 10 to 10 ms. Failed requests: 0.`);
+});
 
 /** Deterministic timers: nothing runs until the test fires it. */
 function fakeTimers() {

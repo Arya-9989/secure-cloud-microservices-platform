@@ -67,6 +67,18 @@ export const SPARK_SLOTS = 24;
 /** Lowest top of the scale, so a fast, flat series does not look jumpy. */
 export const SPARK_FLOOR_MS = 20;
 
+/** Text equivalent of the visible sparkline, including outages. */
+export function sparkSummary(history) {
+  const samples = history.slice(-SPARK_SLOTS);
+  if (!samples.length) return "No samples yet.";
+  const valid = samples.filter((ms) => ms !== null);
+  const failures = samples.length - valid.length;
+  const range = valid.length
+    ? `Round-trip range ${Math.max(1, Math.round(Math.min(...valid)))} to ${Math.max(1, Math.round(Math.max(...valid)))} ms.`
+    : "No successful responses.";
+  return `Last ${samples.length} samples, oldest to newest. ${range} Failed requests: ${failures}.`;
+}
+
 /**
  * Geometry of one sparkline. `history` holds round-trip times in ms, or null
  * for a probe that failed. Uses the last SPARK_SLOTS + 1 samples: the oldest
