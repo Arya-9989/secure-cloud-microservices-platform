@@ -92,7 +92,7 @@ sequenceDiagram
     C->>G: GET /api/v1/orders (Authorization: Bearer ...)
     G->>O: forward
     O->>A: GET /.well-known/jwks.json (cache miss: first use, after 5 min, or unknown kid)
-    O->>O: verify RS256 signature, iss, aud, exp, sub; map scope/roles
+    O->>O: verify RS256 signature, iss, aud, exp, sub, then map scope/roles
     O->>DB: SELECT ... WHERE customer_id = token.sub
     O-->>C: 200 orders
 
