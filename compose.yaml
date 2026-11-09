@@ -264,6 +264,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Updating a bundled plugin stops it before failing on the read-only filesystem.
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/platform-overview.json
       GF_LOG_MODE: console

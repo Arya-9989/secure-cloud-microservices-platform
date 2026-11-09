@@ -2,7 +2,7 @@
 // Everything here is progressive enhancement: with JavaScript off the page reads
 // completely. DOM writes use textContent and attributes only, so the page runs
 // under `require-trusted-types-for 'script'`.
-import { Poller, SPARK_SLOTS, TIMEOUT_MS, describe, sparkGeometry } from "./live.js";
+import { Poller, SPARK_SLOTS, TIMEOUT_MS, describe, sparkGeometry, sparkSummary } from "./live.js";
 
 // One sample more than the sparkline shows, so the slide never pops a point.
 const HISTORY = SPARK_SLOTS + 1;
@@ -146,6 +146,7 @@ function setupProbes() {
     s.history.push(view.up ? ms : null);
     if (s.history.length > HISTORY) s.history.shift();
     drawSpark(row, s);
+    row.querySelector("[data-history]").textContent = sparkSummary(s.history);
     if (view.up) {
       if (!reduceMotion.matches) {
         s.ping = s.ping === 1 ? 2 : 1;
@@ -166,6 +167,11 @@ function setupProbes() {
         polled.map((row) => probeOnce(PROBES[row.dataset.probe])),
       );
       const healthy = polled.map((row, i) => render(row, results[i]));
+      if (firstRound && announcer) {
+        announcer.textContent = polled.map((row) =>
+          `${row.querySelector(".probe-name").textContent.trim()}: ${row.querySelector("[data-status]").textContent}.`,
+        ).join(" ");
+      }
       firstRound = false;
       return { failed: healthy.includes(false) };
     },
@@ -192,7 +198,11 @@ function setupProbes() {
     row.querySelector("[data-status]").hidden = true;
     button.addEventListener("click", async () => {
       button.disabled = true;
+      button.textContent = "Sending…";
+      row.setAttribute("aria-busy", "true");
+      if (announcer) announcer.textContent = "Checking access policy…";
       render(row, await probeOnce(PROBES[row.dataset.probe]));
+      row.removeAttribute("aria-busy");
       if (announcer) {
         const status = row.querySelector("[data-status]").textContent;
         const detail = row.querySelector("[data-detail]").textContent;
@@ -214,6 +224,9 @@ function setupNav() {
   const nav = document.querySelector(".localnav-links");
   const links = [...document.querySelectorAll(".localnav-links a[href^='#']")];
   if (!nav || !links.length || !("IntersectionObserver" in window)) return;
+  for (const link of links) {
+    link.addEventListener("focus", () => link.scrollIntoView({ block: "nearest", inline: "nearest" }));
+  }
   const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
 
   // One underline that slides to the active link (a transform only), instead of

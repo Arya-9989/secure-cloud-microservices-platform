@@ -12,6 +12,7 @@ LABEL org.opencontainers.image.title="landing" \
 # Replace the stock configuration entirely (no default server, no entrypoint
 # scripts that try to rewrite config on a read-only filesystem).
 USER root
+RUN apk add --no-cache --upgrade 'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'
 RUN rm -rf /etc/nginx/conf.d /docker-entrypoint.d /usr/share/nginx/html/*
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY security-headers.conf /etc/nginx/snippets/security-headers.conf
