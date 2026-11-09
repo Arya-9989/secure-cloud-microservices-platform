@@ -178,10 +178,17 @@ class TestTracing:
     def test_grafana_reads_traces_from_jaeger(self) -> None:
         auth = (setting("GRAFANA_ADMIN_USER", "admin"), setting("GRAFANA_ADMIN_PASSWORD"))
 
-        health = httpx.get(
-            f"{GRAFANA_URL}/api/datasources/uid/jaeger/health", auth=auth, timeout=10
-        )
-        assert health.json()["status"] == "OK", health.text
+        def datasource_is_ready() -> None:
+            try:
+                health = httpx.get(
+                    f"{GRAFANA_URL}/api/datasources/uid/jaeger/health", auth=auth, timeout=10
+                )
+            except httpx.TransportError as exc:
+                raise AssertionError(str(exc)) from exc
+            assert health.status_code == 200, f"{health.status_code}: {health.text}"
+            assert health.json().get("status") == "OK", health.text
+
+        eventually(datasource_is_ready, timeout=60)
 
         def search_finds_traces() -> None:
             query = {
@@ -201,6 +208,6 @@ class TestTracing:
             assert response.status_code == 200, response.text
             frames = response.json()["results"]["A"]["frames"]
             assert frames, "Grafana returned no frames"
-            assert frames[0]["data"]["values"], "Grafana found no orders-service traces"
+            assert any(frames[0]["data"]["values"]), "Grafana found no orders-service traces"
 
         eventually(search_finds_traces)
